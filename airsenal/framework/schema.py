@@ -400,6 +400,24 @@ class SessionBudget(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String(100), nullable=False)
     budget = Column(Integer, nullable=False)
+    
+    
+class TransferPriceTracker(Base):
+    __tablename__ = "transfer_price_tracker"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(Integer, ForeignKey("player.player_id"))
+    gameweek = Column(Integer, nullable=False)
+    season = Column(String(4), nullable=False)
+    timestamp = Column(String(100), nullable=False)
+    price = Column(Integer, nullable=False)
+    transfers_in = Column(Integer, nullable=False)
+    transfers_out = Column(Integer, nullable=False)
+    
+    def __str__(self):
+        return (
+            f"{self.player_id} ({self.season} GW{self.gameweek}): "
+            f"£{self.price / 10}, {self.transfers_in}, {self.transfers_out}"
+        )
 
 
 def get_connection_string():
