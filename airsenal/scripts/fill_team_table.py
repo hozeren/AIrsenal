@@ -14,7 +14,7 @@ from airsenal.framework.season import CURRENT_SEASON, sort_seasons
 from airsenal.framework.utils import get_past_seasons
 
 
-def fill_team_table_from_file(filename: str, dbsession: Session = session) -> None:
+def fill_team_table_from_file(filename: str, dbsession: Session = session()) -> None:
     """
     use csv file
     """
@@ -33,7 +33,7 @@ def fill_team_table_from_file(filename: str, dbsession: Session = session) -> No
 
 
 def make_team_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     """
     Fill the db table containing the list of teams in the

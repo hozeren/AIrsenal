@@ -29,7 +29,7 @@ def result_string(n_error: int) -> str:
 
 
 def season_num_teams(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check whether each season has 20 teams.
 
@@ -49,7 +49,7 @@ def season_num_teams(
 
 
 def season_num_new_teams(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check each season has 3 new teams.
 
@@ -74,7 +74,7 @@ def season_num_new_teams(
 
 
 def season_num_fixtures(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check each season has 380 fixtures.
 
@@ -97,7 +97,7 @@ def season_num_fixtures(
 
 
 def fixture_player_teams(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check players who played in a match are labelled as playing for either
     the home team or the away team.
@@ -134,7 +134,7 @@ def fixture_player_teams(
 
 
 def fixture_num_players(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check each fixture has between 11 and 14 players  with at least 1 minute
     in player_scores. For season 19/20 it can be up to 16 players.
@@ -209,7 +209,7 @@ def fixture_num_players(
 
 
 def fixture_num_goals(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check individual player goals sum to match result for each fixture.
 
@@ -269,7 +269,7 @@ def fixture_num_goals(
 
 
 def fixture_num_assists(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check number of assists is less than or equal to number of goals
     for home and away team in each fixture.
@@ -326,7 +326,7 @@ def fixture_num_assists(
 
 
 def fixture_num_conceded(
-    seasons: List[str] = CHECK_SEASONS, session: Session = session
+    seasons: List[str] = CHECK_SEASONS, session: Session = session()
 ) -> int:
     """Check number of goals concdeded equals goals scored by opposition if
     player played whole match (90 minutes).

@@ -33,7 +33,7 @@ def free_hit_used_in_gameweek(gameweek, fpl_team_id=None):
         return 0
 
 
-def count_transactions(season, fpl_team_id, dbsession=session):
+def count_transactions(season, fpl_team_id, dbsession=session()):
     """Count the number of transactions we have in the database for a given team ID
     and season.
     """
@@ -58,7 +58,7 @@ def transaction_exists(
     price_out,
     pid_in,
     price_in,
-    dbsession=session,
+    dbsession=session(),
 ):
     """Check whether the transactions related to transferring a player in and out
     in a gameweek at a specific time already exist in the database.
@@ -107,7 +107,7 @@ def add_transaction(
     free_hit,
     fpl_team_id,
     time,
-    dbsession=session,
+    dbsession=session(),
 ):
     """
     add buy (in_or_out=1) or sell (in_or_out=-1) transactions to the db table.
@@ -131,7 +131,7 @@ def fill_initial_squad(
     season=CURRENT_SEASON,
     tag="AIrsenal" + CURRENT_SEASON,
     fpl_team_id=None,
-    dbsession=session,
+    dbsession=session(),
 ):
     """
     Fill the Transactions table in the database with the initial 15 players, and their
@@ -202,7 +202,7 @@ def update_squad(
     season=CURRENT_SEASON,
     tag="AIrsenal" + CURRENT_SEASON,
     fpl_team_id=None,
-    dbsession=session,
+    dbsession=session(),
     verbose=True,
 ):
     """

@@ -99,7 +99,7 @@ def fill_results_from_api(
 
 
 def make_result_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     """
     past seasons - read results from csv

@@ -19,7 +19,7 @@ from airsenal.framework.utils import find_fixture, get_past_seasons
 
 
 def fill_fixtures_from_file(
-    filename: str, season: str, dbsession: Session = session
+    filename: str, season: str, dbsession: Session = session()
 ) -> None:
     """
     use the match results csv files to get a list of matches in a season,
@@ -44,7 +44,7 @@ def fill_fixtures_from_file(
     dbsession.commit()
 
 
-def fill_fixtures_from_api(season: str, dbsession: Session = session) -> None:
+def fill_fixtures_from_api(season: str, dbsession: Session = session()) -> None:
     """
     Use the FPL API to get a list of fixures.
     """
@@ -96,7 +96,7 @@ def fill_fixtures_from_api(season: str, dbsession: Session = session) -> None:
 
 
 def make_fixture_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     # fill the fixture table for past seasons
     if not seasons:

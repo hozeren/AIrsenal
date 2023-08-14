@@ -3,9 +3,17 @@ Interface to the SQL database.
 Use SQLAlchemy to convert between DB tables and python objects.
 """
 from contextlib import contextmanager
+from threading import current_thread
 
-from sqlalchemy import Column, Float, ForeignKey, Integer, String, create_engine
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy import Column, Engine, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy.orm import (
+    Session,
+    declarative_base,
+    relationship,
+    scoped_session,
+    sessionmaker,
+)
+from sqlalchemy.pool import QueuePool
 
 from airsenal.framework.env import AIRSENAL_HOME, get_env
 
@@ -14,7 +22,9 @@ Base = declarative_base()
 
 class Player(Base):
     __tablename__ = "player"
-    player_id = Column(Integer, primary_key=True, nullable=False, autoincrement=True)
+    player_id = Column(
+        Integer, primary_key=True, nullable=False, autoincrement=True, index=True
+    )
     fpl_api_id = Column(Integer, nullable=True)
     name = Column(String(100), nullable=False)
     attributes = relationship("PlayerAttributes", uselist=True, back_populates="player")
@@ -400,19 +410,19 @@ class SessionBudget(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String(100), nullable=False)
     budget = Column(Integer, nullable=False)
-    
-    
+
+
 class TransferPriceTracker(Base):
     __tablename__ = "transfer_price_tracker"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    player_id = Column(Integer, ForeignKey("player.player_id"))
+    player_id = Column(Integer, ForeignKey("player.player_id"), index=True)
     gameweek = Column(Integer, nullable=False)
     season = Column(String(4), nullable=False)
     timestamp = Column(String(100), nullable=False)
     price = Column(Integer, nullable=False)
     transfers_in = Column(Integer, nullable=False)
     transfers_out = Column(Integer, nullable=False)
-    
+
     def __str__(self):
         return (
             f"{self.player_id} ({self.season} GW{self.gameweek}): "
@@ -446,34 +456,72 @@ def get_connection_string():
     return f"sqlite:///{get_env('AIRSENAL_DB_FILE', default=AIRSENAL_HOME / 'data.db')}"
 
 
-def get_session():
-    engine = create_engine(get_connection_string())
+def get_session() -> scoped_session[Session]:
+    db_session = scoped_session(get_sessionmaker())
+    return db_session
 
+
+def get_sessionmaker() -> sessionmaker:
+    if "postgresql" in get_connection_string():
+        engine: Engine = create_engine(
+            get_connection_string(), use_native_hstore=False, poolclass=QueuePool
+        )
+    else:
+        engine: Engine = create_engine(get_connection_string())
     Base.metadata.create_all(engine)
     # Bind the engine to the metadata of the Base class so that the
     # declaratives can be accessed through a DBSession instance
     Base.metadata.bind = engine
-
     DBSession = sessionmaker(bind=engine, autoflush=False)
-    return DBSession()
+    return DBSession
 
 
 # global database session used by default throughout the package
-session = get_session()
+_sessions = {}
+_global_session: scoped_session[Session] = get_session()
+_global_thread_id: int | None = current_thread().ident
+_sessions[current_thread().ident] = _global_session
+
+
+# session: scoped_session[Session] = scoped_session(get_sessionmaker())
+def session(ident: int = None) -> scoped_session[Session]:
+    """
+    Create a scoped session for the current thread.
+    """
+    # if postgres is not in the connection string, we don't need to worry about threads
+    if "postgresql" in get_connection_string():
+        # get the thread id that called this function
+        thread_id: int | None = current_thread().ident if ident is None else ident
+        if thread_id != _global_thread_id:
+            print("WARNING: using a new session for thread", thread_id)
+        if thread_id is None:
+            raise RuntimeError("Could not get thread id")
+        # if we are in the main thread, just return the global session
+        if thread_id not in _sessions:
+            _sessions[thread_id] = scoped_session(get_sessionmaker())
+        return _sessions[thread_id]
+    return _global_session
 
 
 @contextmanager
 def session_scope():
     """Provide a transactional scope around a series of operations."""
-    session = get_session()
+    _session: scoped_session[Session] = session()
     try:
-        yield session
-        session.commit()
+        yield _session
+        _session.commit()
     except Exception:
-        session.rollback()
+        _session.rollback()
         raise
     finally:
-        session.close()
+        _session.remove()
+        if "postgresql" in get_connection_string():
+            # get the thread id that called this function
+            thread_id: int | None = current_thread().ident
+            if thread_id is None:
+                raise RuntimeError("Could not get thread id")
+            if thread_id in _sessions:
+                del _sessions[thread_id]
 
 
 def clean_database():

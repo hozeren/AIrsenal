@@ -62,7 +62,7 @@ def load_absences(season: str, dbsession: Session) -> None:
 
 
 def make_absence_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     if not seasons:
         seasons = [CURRENT_SEASON]

@@ -25,7 +25,7 @@ from airsenal.framework.utils import (
     list_teams,
 )
 
-DBSESSION = scoped_session(session)
+DBSESSION = session()
 
 
 def remove_db_session(dbsession=DBSESSION):

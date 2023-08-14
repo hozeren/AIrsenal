@@ -17,7 +17,7 @@ from airsenal.framework.utils import get_past_seasons
 
 
 def make_fifa_ratings_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     # make the fifa ratings table
     # TODO: scrape the data first rather than committing file to repo

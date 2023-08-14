@@ -71,7 +71,7 @@ def get_suggestions_string():
     except Exception as e:
         return f"Problem importing stuff {e}"
     try:
-        return build_suggestion_string(session, TransferSuggestion, Player)
+        return build_suggestion_string(session(), TransferSuggestion, Player)
 
     except Exception as e:
         return f"Problem with the query {e}"
