@@ -84,7 +84,7 @@ def fill_player_table_from_api(season: str, dbsession: Session) -> None:
     dbsession.commit()
 
 
-def make_init_player_table(season: str, dbsession: Session = session) -> None:
+def make_init_player_table(season: str, dbsession: Session = session()) -> None:
     """
     Fill the player table with the latest season of data (only, as then need to do
     mappings)
@@ -105,7 +105,7 @@ def make_init_player_table(season: str, dbsession: Session = session) -> None:
 
 
 def make_remaining_player_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     """
     Fill remaining players for subsequent seasons (AFTER players from the most recent
@@ -124,7 +124,7 @@ def make_remaining_player_table(
 
 
 def make_player_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     if not seasons:
         seasons = [CURRENT_SEASON]

@@ -75,8 +75,16 @@ def allocate_predictions(
             dbsession=dbsession,
         )
         for p in predictions:
+            # check if db uri contains postgresql
+            if "postgresql" in dbsession.bind.url.drivername:
+                # check if the predicted_points is a float or jaxlib ArrayImpl
+                if hasattr(p.predicted_points, "shape"):
+                    p.predicted_points = p.predicted_points.tolist()
             dbsession.add(p)
         dbsession.commit()
+        if queue.empty():
+            if "postgresql" in dbsession.bind.url.drivername:
+                dbsession.close()
 
 
 def calc_all_predicted_points(
@@ -129,6 +137,8 @@ def calc_all_predicted_points(
         queue = Queue()
         procs = []
         for _ in range(num_thread):
+            # create a new db session for each thread
+            _dbsession = session(_)
             processor = Process(
                 target=allocate_predictions,
                 args=(
@@ -141,7 +151,7 @@ def calc_all_predicted_points(
                     df_cards,
                     season,
                     tag,
-                    dbsession,
+                    _dbsession,
                 ),
             )
             processor.daemon = True
@@ -171,6 +181,11 @@ def calc_all_predicted_points(
                 dbsession=dbsession,
             )
             for p in predictions:
+                # check if db uri contains postgresql
+                if "postgresql" in dbsession.bind.url.drivername:
+                    # check if the predicted_points is a float or jaxlib ArrayImpl
+                    if hasattr(p.predicted_points, "shape"):
+                        p.predicted_points = p.predicted_points.tolist()
                 dbsession.add(p)
         dbsession.commit()
         print("Finished adding predictions to db")
@@ -185,7 +200,7 @@ def make_predictedscore_table(
     include_saves: bool = True,
     tag_prefix: Optional[str] = None,
     player_model: ConjugatePlayerModel = ConjugatePlayerModel(),
-    dbsession: Session = session,
+    dbsession: Session = session(),
     team_model_class=ExtendedDixonColesMatchPredictor,
 ) -> str:
     tag = tag_prefix or ""

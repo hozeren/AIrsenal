@@ -30,7 +30,9 @@ positions = ["FWD", "MID", "DEF", "GK"]  # front-to-back
 DEFAULT_SUB_WEIGHTS = {"GK": 0.03, "Outfield": (0.65, 0.3, 0.1)}
 
 
-def check_tag_valid(pred_tag, gameweek_range, season=CURRENT_SEASON, dbsession=session):
+def check_tag_valid(
+    pred_tag, gameweek_range, season=CURRENT_SEASON, dbsession=session()
+):
     """Check a prediction tag contains predictions for all the specified gameweeks."""
     # get unique gameweek and season values associated with pred_tag
     fixtures = (
@@ -141,7 +143,8 @@ def get_squad_from_transactions(gameweek, season=CURRENT_SEASON, fpl_team_id=Non
     if not fpl_team_id:
         # use the most recent transaction in the table
         most_recent = (
-            session.query(Transaction)
+            session()
+            .query(Transaction)
             .order_by(Transaction.id.desc())
             .filter_by(free_hit=0)
             .filter_by(season=season)
@@ -155,7 +158,8 @@ def get_squad_from_transactions(gameweek, season=CURRENT_SEASON, fpl_team_id=Non
     # Don't include free hit transfers as they only apply for the week the
     # chip is activated
     transactions = (
-        session.query(Transaction)
+        session()
+        .query(Transaction)
         .order_by(Transaction.gameweek, Transaction.id)
         .filter_by(fpl_team_id=fpl_team_id)
         .filter_by(free_hit=0)
@@ -264,12 +268,12 @@ def fill_suggestion_table(baseline_score, best_strat, season, fpl_team_id):
                 ts.season = season
                 ts.fpl_team_id = fpl_team_id
                 ts.chip_played = best_strat["chips_played"][gameweek]
-                session.add(ts)
-    session.commit()
+                session().add(ts)
+    session().commit()
 
 
 def fill_transaction_table(
-    starting_squad, best_strat, season, fpl_team_id, tag=None, dbsession=session
+    starting_squad, best_strat, season, fpl_team_id, tag=None, dbsession=session()
 ):
     """Add transactions from an optimised strategy to the transactions table in the
     database. Used for simulating seasons only, for playing the current FPL season
@@ -323,7 +327,7 @@ def fill_initial_suggestion_table(
     tag,
     season=CURRENT_SEASON,
     gameweek=NEXT_GAMEWEEK,
-    dbsession=session,
+    dbsession=session(),
 ):
     """
     Fill an initial squad into the table
@@ -350,7 +354,7 @@ def fill_initial_transaction_table(
     tag,
     season=CURRENT_SEASON,
     gameweek=NEXT_GAMEWEEK,
-    dbsession=session,
+    dbsession=session(),
 ):
     """Add transactions from an initial squad optimisation to the transactions table
     in the database. Used for simulating seasons only, for playing the current FPL

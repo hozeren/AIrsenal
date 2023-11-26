@@ -112,7 +112,7 @@ def get_fitted_team_model(
 
 
 def fixture_probabilities(
-    gameweek, season=CURRENT_SEASON, team_model=None, dbsession=session
+    gameweek, season=CURRENT_SEASON, team_model=None, dbsession=session()
 ):
     """
     Returns probabilities for all fixtures in a given gameweek and season, as a data

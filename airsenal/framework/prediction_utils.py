@@ -51,7 +51,7 @@ np.random.seed(42)
 MAX_GOALS = 10
 
 
-def check_absence(player, gameweek, season, dbsession=session):
+def check_absence(player, gameweek, season, dbsession=session()):
     """
     Query the Absence table for a given player and season to see if the
     gameweek is within the period of absence. If so, return the details of absence.
@@ -82,7 +82,7 @@ def get_player_history_df(
     fill_blank=True,
     season=CURRENT_SEASON,
     gameweek=NEXT_GAMEWEEK,
-    dbsession=session,
+    dbsession=session(),
 ):
     """
     Query the player_score table to get goals/assists/minutes, and then
@@ -157,7 +157,7 @@ def get_player_history_df(
                 print("Unknown opponent!")
                 team_goals = -1
             absence_reason, absence_detail = check_absence(
-                player, row.fixture.gameweek, row.fixture.season, session
+                player, row.fixture.gameweek, row.fixture.season, session()
             )
             player_data.append(
                 [
@@ -321,7 +321,7 @@ def calc_predicted_points_for_player(
     fixtures_behind=None,
     min_fixtures_behind=3,
     tag="",
-    dbsession=session,
+    dbsession=session(),
 ):
     """
     Use the team-level model to get the probs of scoring or conceding
@@ -374,7 +374,7 @@ def calc_predicted_points_for_player(
         # this should now be dealt with in get_recent_minutes_for_player, so
         # throw error if not.
         # recent_minutes = estimate_minutes_from_prev_season(
-        #    player, season=season, dbsession=session
+        #    player, season=season, dbsession=session()
         # )
         raise ValueError("Recent minutes is empty.")
 
@@ -458,7 +458,7 @@ def calc_predicted_points_for_pos(
     gw_range,
     tag,
     model=ConjugatePlayerModel(),
-    dbsession=session,
+    dbsession=session(),
 ):
     """
     Calculate points predictions for all players in a given position and
@@ -501,7 +501,7 @@ def make_prediction(player, fixture, points, tag):
 #    session.add(pp)
 
 
-def fill_ep(csv_filename, dbsession=session):
+def fill_ep(csv_filename, dbsession=session()):
     """
     fill the database with FPLs ep_next prediction, and also
     write output to a csv.
@@ -529,7 +529,7 @@ def fill_ep(csv_filename, dbsession=session):
 
 
 def process_player_data(
-    prefix, season=CURRENT_SEASON, gameweek=NEXT_GAMEWEEK, dbsession=session
+    prefix, season=CURRENT_SEASON, gameweek=NEXT_GAMEWEEK, dbsession=session()
 ):
     """
     transform the player dataframe, basically giving a list (for each player)
@@ -576,7 +576,7 @@ def process_player_data(
 
 
 def fit_player_data(
-    position, season, gameweek, model=ConjugatePlayerModel(), dbsession=session
+    position, season, gameweek, model=ConjugatePlayerModel(), dbsession=session()
 ):
     """
     fit the data for a particular position (FWD, MID, DEF)
@@ -597,7 +597,7 @@ def fit_player_data(
 
 
 def get_all_fitted_player_data(
-    season, gameweek, model=ConjugatePlayerModel(), dbsession=session
+    season, gameweek, model=ConjugatePlayerModel(), dbsession=session()
 ):
     df_positions = {"GK": None}
     for pos in ["DEF", "MID", "FWD"]:
@@ -606,7 +606,7 @@ def get_all_fitted_player_data(
 
 
 def get_player_scores(
-    season, gameweek, min_minutes=0, max_minutes=90, dbsession=session
+    season, gameweek, min_minutes=0, max_minutes=90, dbsession=session()
 ):
     """Utility function to get player scores rows up to (or the same as) season and
     gameweek as a dataframe"""
@@ -637,7 +637,7 @@ def mean_group_min_count(df, group_col, mean_col, min_count=10):
 
 
 def fit_bonus_points(
-    gameweek=NEXT_GAMEWEEK, season=CURRENT_SEASON, min_matches=10, dbsession=session
+    gameweek=NEXT_GAMEWEEK, season=CURRENT_SEASON, min_matches=10, dbsession=session()
 ):
     """Calculate the average bonus points scored by each player for matches they play
     between 60 and 90 minutes, and matches they play between 30 and 59 minutes.
@@ -672,7 +672,7 @@ def fit_save_points(
     season=CURRENT_SEASON,
     min_matches=10,
     min_minutes=90,
-    dbsession=session,
+    dbsession=session(),
 ):
     """Calculate the average save points scored by each goalkeeper for matches they
     played at least min_minutes in.
@@ -702,7 +702,7 @@ def fit_card_points(
     season=CURRENT_SEASON,
     min_matches=10,
     min_minutes=1,
-    dbsession=session,
+    dbsession=session(),
 ):
     """Calculate the average points per match lost to yellow or red cards
     for each player.

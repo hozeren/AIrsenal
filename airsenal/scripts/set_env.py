@@ -14,7 +14,7 @@ from airsenal.framework.schema import session
 def print_env():
     print(f"AIRSENAL_VERSION: {__version__}")
     print(f"AIRSENAL_HOME: {AIRSENAL_HOME}")
-    print(f"DB_CONNECTION_STRING: {session.bind.url}")
+    print(f"DB_CONNECTION_STRING: {session().bind.url}")
     for k in AIRSENAL_ENV_KEYS:
         if value := get_env(k):
             print(f"{k}: {value}")

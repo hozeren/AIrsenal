@@ -26,7 +26,7 @@ from airsenal.framework.utils import (
 
 
 def fill_playerscores_from_json(
-    detail_data: list, season: str, dbsession: Session = session
+    detail_data: list, season: str, dbsession: Session = session()
 ) -> None:
     for player_name in detail_data.keys():
         # find the player id in the player table.  If they're not
@@ -116,7 +116,7 @@ def fill_playerscores_from_api(
     season: str,
     gw_start: int = 1,
     gw_end: int = NEXT_GAMEWEEK,
-    dbsession: Session = session,
+    dbsession: Session = session(),
 ) -> None:
     fetcher = FPLDataFetcher()
     input_data = fetcher.get_player_summary_data()
@@ -209,7 +209,7 @@ def fill_playerscores_from_api(
 
 
 def make_playerscore_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     # previous seasons data from json files
     if not seasons:

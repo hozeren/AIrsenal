@@ -36,7 +36,7 @@ def get_teams_for_season(season, dbsession):
 
 
 # global variable for the module
-CURRENT_TEAMS = get_teams_for_season(CURRENT_SEASON, session)
+CURRENT_TEAMS = get_teams_for_season(CURRENT_SEASON, session())
 
 
 def season_str_to_year(season: str) -> int:

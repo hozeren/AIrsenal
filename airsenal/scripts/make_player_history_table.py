@@ -19,7 +19,7 @@ def get_player_history_table(position: str = "all") -> None:
         player_ids = list_players(position)
         for pid in player_ids:
             player_name = get_player_name(pid)
-            results = session.query(PlayerScore).filter_by(player_id=pid).all()
+            results = session().query(PlayerScore).filter_by(player_id=pid).all()
             row_count = 0
             for row in results:
                 minutes = row.minutes
@@ -28,7 +28,7 @@ def get_player_history_table(position: str = "all") -> None:
                 assists = row.assists
                 # find the match, in order to get team goals
                 Match = None  # TODO: Placeholder for missing (deprecated?) Match class
-                match = session.query(Match).filter_by(match_id=row.match_id).first()
+                match = session().query(Match).filter_by(match_id=row.match_id).first()
                 if match.home_team == row.opponent:
                     team_goals = match.away_score
                 elif match.away_team == row.opponent:

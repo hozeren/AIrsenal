@@ -170,7 +170,7 @@ def save_table_fields(path, fields, dbclass, msg):
 def write_rows_to_csv(csvfile, fieldnames, dbclass):
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writeheader()
-    for player in session.query(dbclass).all():
+    for player in session().query(dbclass).all():
         player = vars(player)
         row = {
             field: player[field]

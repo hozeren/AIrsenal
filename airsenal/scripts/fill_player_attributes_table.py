@@ -26,7 +26,7 @@ from airsenal.framework.utils import (
 
 
 def fill_attributes_table_from_file(
-    detail_data: dict, season: str, dbsession: Session = session
+    detail_data: dict, season: str, dbsession: Session = session()
 ) -> None:
     """Fill player attributes table for previous season using data from
     player detail JSON files.
@@ -86,7 +86,7 @@ def fill_attributes_table_from_file(
 
 
 def fill_attributes_table_from_api(
-    season: str, gw_start: int = 1, dbsession: Session = session
+    season: str, gw_start: int = 1, dbsession: Session = session()
 ) -> None:
     """
     use the FPL API to get player attributes info for the current season
@@ -210,7 +210,7 @@ def fill_attributes_table_from_api(
 
 
 def make_attributes_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: Optional[List[str]] = [], dbsession: Session = session()
 ) -> None:
     """Create the player attributes table using the previous 3 seasons (from
     player details JSON files) and the current season (from API)

@@ -19,7 +19,8 @@ def get_transfer_suggestions(dbsession, gameweek=None, season=None, fpl_team_id=
     all_rows = dbsession.query(TransferSuggestion).all()
     last_timestamp = all_rows[-1].timestamp
     query = (
-        session.query(TransferSuggestion)
+        session()
+        .query(TransferSuggestion)
         .filter_by(timestamp=last_timestamp)
         .order_by(TransferSuggestion.gameweek)
     )
@@ -47,6 +48,6 @@ def build_strategy_string(rows):
 
 
 if __name__ == "__main__":
-    rows = get_transfer_suggestions(session, TransferSuggestion)
+    rows = get_transfer_suggestions(session(), TransferSuggestion)
     output_string = build_strategy_string(rows)
     print(output_string)
