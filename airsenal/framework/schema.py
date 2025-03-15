@@ -421,7 +421,7 @@ def get_connection_string():
 
         return (
             f"postgresql://{params['AIRSENAL_DB_USER']}:"
-            f"{params['AIRSENAL_DB_PASSWORD']}@{params['AIRSENAL_DB_URI']}/airsenal"
+            f"{params['AIRSENAL_DB_PASSWORD']}@{params['AIRSENAL_DB_URI']}/airsenal2425"
         )
 
     # sqlite database in a local file with path specified by AIRSENAL_DB_FILE,

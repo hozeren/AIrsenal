@@ -75,6 +75,10 @@ def allocate_predictions(
             dbsession=dbsession,
         )
         for p in predictions:
+            if "postgresql" in dbsession.bind.url.drivername:
+                # check if the predicted_points is a float or jaxlib ArrayImpl
+                if hasattr(p.predicted_points, "shape"):
+                    p.predicted_points = p.predicted_points.tolist()
             dbsession.add(p)
         dbsession.commit()
 
@@ -177,6 +181,10 @@ def calc_all_predicted_points(
                 dbsession=dbsession,
             )
             for p in predictions:
+                if "postgresql" in dbsession.bind.url.drivername:
+                    # check if the predicted_points is a float or jaxlib ArrayImpl
+                    if hasattr(p.predicted_points, "shape"):
+                        p.predicted_points = p.predicted_points.tolist()
                 dbsession.add(p)
         dbsession.commit()
         print("Finished adding predictions to db")
@@ -315,3 +323,6 @@ def main():
             n_players=5,
             dbsession=session,
         )
+
+
+main()
