@@ -121,3 +121,8 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+data.csv
+data.db
+irem_run.sh
+log.txt
+.vscode/settings.json
