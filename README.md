@@ -8,59 +8,79 @@ For some background information and details see https://www.turing.ac.uk/researc
 
 We welcome contributions and comments - if you'd like to join the AIrsenal community please refer to our [contribution guidelines](https://github.com/alan-turing-institute/AIrsenal/blob/master/CONTRIBUTING.md)
 
-## Mini-league for 2023/24 season
+## Mini-league for 2025/26 season
 
 We have made a mini-league **"Prem-AI League"** for players using this software.  To join, login to the FPL website, and navigate to the page to join a league: https://fantasy.premierleague.com/leagues/create-join then click "join a league or cup".
-The code to join is: **uke1z3**.
+The code to join is: **xoz7vm**.
 Hope to see your AI team there!! :)
 
-Our own AIrsenal team's ID for the 2023/24 season is **[1822891](https://fantasy.premierleague.com/entry/1822891/history)**.
+Our own AIrsenal team's ID for the 2025/26 season is **[742663](https://fantasy.premierleague.com/entry/742663/history)**.
 
 ## Installation
 
-We recommend running AIrsenal in a conda environment. For instructions on how to install conda go to this link: https://docs.anaconda.com/anaconda/install/, or the more lightweight MiniConda: https://docs.conda.io/en/latest/miniconda.html.
+### _New!_ AIrsenal on PyPi!
 
-With conda installed, run these commands in a terminal to create a new conda environment and download and install AIrsenal:
+<details>
+
+You can now do `pip install airsenal` in your Python virtual environment of choice, and it should work out-of-the-box, allowing you to run all the `airsenal_*` commands listed in the [Getting Started section](#getting-started).
+However, a couple of caveats:
+ * Due to a dependency using an older version of `jaxlib` this currently doesn't work on Python 3.13 or later.
+ * We will aim to keep the version on PyPi relatively up-to-date, but if you want the very latest developments, they will appear first in Github (on the `develop` branch if you're feeling brave, or `main` if you want a more stable version), which would require [building from source](#installation-from-source)
+  
+</details>
+
+## Installation from source
+
+We recommend using [uv](https://docs.astral.sh/uv/) for managing Python versions and dependencies. For instructions on how to install uv, go to: https://docs.astral.sh/uv/getting-started/installation/
+
+With uv installed, run these commands in a terminal to download and install AIrsenal:
 
 ### Linux and macOS
 
+<details>
+  
 ```shell
 git clone https://github.com/alan-turing-institute/AIrsenal.git
 cd AIrsenal
-conda env create
-conda activate airsenalenv
+uv sync
 ```
+
+</details>
 
 ### Windows
 
+<details>
+  
 The best ways to run AIrsenal on Windows are either to use [Windows Subsystem for Linux](https://docs.microsoft.com/en-us/windows/wsl/install) (WSL), which allows you to run AIrsenal in a Linux environment on your Windows system, or Docker (see below).
 
-After installing WSL, if you'd like to use AIrsenal with conda run the following commands to install it from your WSL terminal (following the Linux instructions [here](https://docs.conda.io/en/latest/miniconda.html#linux-installers)):
+After installing WSL, you can install uv by following the instructions [here](https://docs.astral.sh/uv/getting-started/installation/).
 
-```shell
-wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
-bash Miniconda3-latest-Linux-x86_64.sh
-```
-
-You can then follow the installation instructions for Linux and macOS above (or the instructions for without conda below).
+You can then follow the installation instructions for Linux and macOS above (or the instructions for without uv below).
 
 You're free to try installing and using AIrsenal in Windows itself, but so far we haven't got it working. The main difficulties are with installing [jax](https://github.com/google/jax#installation) and some database/pickling errors (e.g. #165). If you do get it working we'd love to hear from you!
 
-### Use AIrsenal without conda
+</details>
 
-To use AIrsenal without conda:
+### Use AIrsenal without uv
+
+<details>
+
+  To use AIrsenal without uv:
 
 ```shell
 git clone https://github.com/alan-turing-institute/AIrsenal.git
 cd AIrsenal
-pip install pygmo  # Linux only
 pip install .
 ```
 
-AIrsenal has an optional optimisation algorithm using the PyGMO package, which is only pip-installable on Linux (either use conda or don't install pygmo on other platforms). However, we have also occasionally seen errors when using conda (e.g. [#81](https://github.com/alan-turing-institute/AIrsenal/issues/81))
+</details>
 
 ### Docker
 
+<details>
+
+Rather than building and running natively on your machine, you can instead use a Docker image if you prefer.
+  
 Build the docker-image:
 
 ```console
@@ -109,13 +129,19 @@ $ docker run -it --rm -v airsenal_data:/tmp/ -e "FPL_TEAM_ID=<your_id>" -e "AIRS
 
 `airsenal_run_pipeline` is the default command.
 
+</details>
+
 ## Optional dependencies
 
-AIrsenal has optional dependencies for plotting, running notebooks, and an in development AIrsenal API. To install them run:
+<details>
+
+  AIrsenal has optional dependencies for plotting, running notebooks, and an in development AIrsenal API. To install them run:
 
 ```shell
 pip install ".[api,notebook,plot]"
 ```
+
+</details>
 
 ## Configuration
 
@@ -153,11 +179,13 @@ See `airsenal_env --help` for other options.
 
 ## Getting Started
 
-If you installed AIrsenal with conda, you should always make sure the `airsenalenv` virtual environment is activated before running AIrsenal commands. To activate the environment use:
+If you installed AIrsenal with `pip`, you should always make sure the `airsenalenv` virtual environment is activated before running AIrsenal commands. To create and activate the environment use:
 
 ```shell
-conda activate airsenalenv
+python3 -m venv airsenalenv
+source airsenalenv/bin/activate
 ```
+If installed using `uv`, all the following commands can be run with `uv run` before them.
 
 Note: Most the commands below can be run with the `--help` flag to see additional options and information.
 
@@ -236,8 +264,8 @@ AIrsenal is regularly developed to fix bugs and add new features. If you have an
 You may also like to try the development version of AIrsenal, which has the latest fixes and features. To do this checkout the `develop` branch of the repo and reinstall:
 
 ```shell
-git pull
 git checkout develop
+git pull
 pip install --force-reinstall .
 ```
 
@@ -252,8 +280,6 @@ If you're developing AIrsenal you may find it helpful to install it in editable 
 ```shell
 pip install -e .
 ```
-
-We're in the process of migrating to [Poetry](https://python-poetry.org/docs/), but as `PyGMO` is not available on `PyPI` on all platforms this is a work on progress. However, you can set up a development environment without `PyGMO` by running `poetry install` and then `poetry shell` to enter the environment.
 
 We also have a [pre-commit](https://pre-commit.com/) config to run the code quality tools we use (`flake8`, `isort`, and `black`) automatically when making commits. If you're using `poetry` it will be installed as a dev dependency, otherwise run `pip install pre-commit`. Then to setup the commit hooks:
 

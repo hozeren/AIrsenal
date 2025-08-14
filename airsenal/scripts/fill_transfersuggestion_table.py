@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 """
 usage:
 python fill_transfersuggestions_table.py --weeks_ahead <num_weeks_ahead>
@@ -16,7 +14,6 @@ representing 0, 1, 2 transfers for the next gameweek.
 
 """
 
-
 import argparse
 import cProfile
 import json
@@ -25,8 +22,8 @@ import shutil
 import sys
 import time
 import warnings
+from collections.abc import Callable
 from multiprocessing import Process, Queue
-from typing import Callable, List, Optional
 
 import regex as re
 import requests
@@ -39,7 +36,7 @@ from airsenal.framework.multiprocessing_utils import (
 )
 from airsenal.framework.optimization_transfers import make_best_transfers
 from airsenal.framework.optimization_utils import (
-    calc_free_transfers,
+    MAX_FREE_TRANSFERS,
     calc_points_hit,
     check_tag_valid,
     count_expected_outputs,
@@ -84,17 +81,18 @@ def optimize(
     queue: Queue,
     pid: Process,
     num_expected_outputs: int,
-    gameweek_range: List[int],
+    gameweek_range: list[int],
     season: str,
     pred_tag: str,
     chips_gw_dict: dict,
-    max_total_hit: Optional[int] = None,
+    max_total_hit: int | None = None,
     allow_unused_transfers: bool = False,
     max_transfers: int = 2,
     num_iterations: int = 100,
-    updater: Optional[Callable] = None,
-    resetter: Optional[Callable] = None,
+    updater: Callable | None = None,
+    resetter: Callable | None = None,
     profile: bool = False,
+    max_free_transfers: int = MAX_FREE_TRANSFERS,
 ) -> None:
     """
     Queue is the multiprocessing queue,
@@ -130,6 +128,8 @@ def optimize(
         if profile:
             profiler = cProfile.Profile()
             profiler.enable()
+        else:
+            profiler = None
 
         num_transfers, free_transfers, hit_so_far, squad, strat_dict, sid = status
         # num_transfers will be 0, 1, 2, OR 'W' or 'F', OR 'T0', T1', 'T2',
@@ -160,7 +160,8 @@ def optimize(
             if len(sid) > 0:
                 sid += "-"
             sid += str(num_transfers)
-            resetter(pid, sid)
+            if resetter is not None:
+                resetter(pid, sid)
 
             # work out what gameweek we're in and how far down the tree we are.
             depth = len(strat_dict["points_per_gw"])
@@ -199,7 +200,7 @@ def optimize(
                 root_gw,
                 season,
                 num_iterations,
-                (updater, increment, pid),
+                (updater, increment, pid) if updater is not None else None,
             )
 
             points_hit = calc_points_hit(num_transfers, free_transfers)
@@ -213,7 +214,6 @@ def optimize(
             strat_dict["discount_factor"][gw] = discount_factor
             strat_dict["players_in"][gw] = transfers["in"]
             strat_dict["players_out"][gw] = transfers["out"]
-            free_transfers = calc_free_transfers(num_transfers, free_transfers)
 
             depth += 1
 
@@ -224,9 +224,10 @@ def optimize(
             ) as outfile:
                 json.dump(strat_dict, outfile)
             # call function to update the main progress bar
-            updater()
+            if updater is not None:
+                updater()
 
-            if profile:
+            if profile and profiler is not None:
                 profiler.dump_stats(f"process_strat_{pred_tag}_{sid}.pstat")
 
         else:
@@ -235,8 +236,9 @@ def optimize(
                 (free_transfers, hit_so_far, strat_dict),
                 max_total_hit=max_total_hit,
                 allow_unused_transfers=allow_unused_transfers,
-                max_transfers=max_transfers,
+                max_opt_transfers=max_transfers,
                 chips=chips_gw_dict[gw + 1],
+                max_free_transfers=max_free_transfers,
             )
 
             for strat in strategies:
@@ -255,7 +257,7 @@ def optimize(
                 )
 
 
-def find_best_strat_from_json(tag: str) -> dict:
+def find_best_strat_from_json(tag: str) -> dict | None:
     """
     Look through all the files in our tmp directory that
     contain the prediction tag in their filename.
@@ -277,7 +279,7 @@ def find_best_strat_from_json(tag: str) -> dict:
     return best_strat
 
 
-def save_baseline_score(squad: Squad, gameweeks: List[int], tag: str) -> None:
+def save_baseline_score(squad: Squad, gameweeks: list[int], tag: str) -> None:
     """When strategies with unused transfers are excluded the baseline strategy will
     normally not be part of the tree. In that case save it first with this function.
     """
@@ -290,7 +292,7 @@ def save_baseline_score(squad: Squad, gameweeks: List[int], tag: str) -> None:
         json.dump(strat_dict, f)
 
 
-def find_baseline_score_from_json(tag: str, num_gameweeks: int) -> None:
+def find_baseline_score_from_json(tag: str, num_gameweeks: int) -> float:
     """
     The baseline score is the one where we make 0 transfers
     for all gameweeks.
@@ -301,10 +303,9 @@ def find_baseline_score_from_json(tag: str, num_gameweeks: int) -> None:
     if not os.path.exists(filename):
         print(f"Couldn't find {filename}")
         return 0.0
-    else:
-        with open(filename) as inputfile:
-            strat = json.load(inputfile)
-            return strat["total_score"]
+    with open(filename) as inputfile:
+        strat = json.load(inputfile)
+        return strat["total_score"]
 
 
 def print_strat(strat: dict) -> None:
@@ -324,16 +325,17 @@ def print_strat(strat: dict) -> None:
         for i in range(len(strat["players_in"][str(gw)])):
             pin = get_player_name(strat["players_in"][str(gw)][i])
             pout = get_player_name(strat["players_out"][str(gw)][i])
-            if len(pin) < 20:
-                subs = f"{pin}\t\t\t{pout}"
-            else:
-                subs = f"{pin}\t\t{pout}"
+            subs = (
+                f"{pin}\t\t\t{pout}"
+                if pin is not None and len(pin) < 20
+                else f"{pin}\t\t{pout}"
+            )
             print(subs)
     print("\n==========================")
     print(f" Total score: {int(strat['total_score'])} \n")
 
 
-def discord_payload(strat: dict, lineup: List[str]) -> dict:
+def discord_payload(strat: dict, lineup: list[str]) -> dict:
     """
     json formated discord webhook content.
     """
@@ -346,17 +348,18 @@ def discord_payload(strat: dict, lineup: List[str]) -> dict:
         "color": 0x35A800,
         "fields": [],
     }
+    fields: list[dict] = []
     for gw in gameweeks_as_int:
-        discord_embed["fields"].append(
+        fields.append(
             {
                 "name": f"GW{gw} chips:",
                 "value": f"Chips played:  {strat['chips_played'][str(gw)]}\n",
                 "inline": False,
             }
         )
-        pin = [get_player_name(p) for p in strat["players_in"][str(gw)]]
-        pout = [get_player_name(p) for p in strat["players_out"][str(gw)]]
-        discord_embed["fields"].extend(
+        pin = [str(get_player_name(p)) for p in strat["players_in"][str(gw)]]
+        pout = [str(get_player_name(p)) for p in strat["players_out"][str(gw)]]
+        fields.extend(
             [
                 {
                     "name": f"GW{gw} transfers out:",
@@ -370,16 +373,16 @@ def discord_payload(strat: dict, lineup: List[str]) -> dict:
                 },
             ]
         )
-    payload = {
+    discord_embed["fields"] = fields
+    return {
         "content": "\n".join(lineup),
         "username": "AIrsenal",
         "embeds": [discord_embed],
     }
-    return payload
 
 
 def print_team_for_next_gw(
-    strat: dict, season: str = CURRENT_SEASON, fpl_team_id: Optional[int] = None
+    strat: dict, season: str = CURRENT_SEASON, fpl_team_id: int | None = None
 ) -> Squad:
     """
     Display the team (inc. subs and captain) for the next gameweek
@@ -399,20 +402,21 @@ def print_team_for_next_gw(
 
 
 def run_optimization(
-    gameweeks: List[int],
+    gameweeks: list[int],
     tag: str,
     season: str = CURRENT_SEASON,
-    fpl_team_id: Optional[int] = None,
-    chip_gameweeks: dict = {},
-    num_free_transfers: Optional[int] = None,
-    max_total_hit: Optional[int] = None,
+    fpl_team_id: int | None = None,
+    chip_gameweeks: dict | None = None,
+    num_free_transfers: int | None = None,
+    max_total_hit: int | None = None,
     allow_unused_transfers: bool = False,
-    max_transfers: int = 2,
+    max_opt_transfers: int = 2,
     num_iterations: int = 100,
     num_thread: int = 4,
     profile: bool = False,
     is_replay: bool = False,  # for replaying seasons
-):
+    max_free_transfers: int = MAX_FREE_TRANSFERS,
+) -> tuple[Squad, dict[str, dict[str, int | list[int]]] | None]:
     """
     This is the actual main function that sets up the multiprocessing
     and calls the optimize function for every num_transfers/gameweek
@@ -421,9 +425,16 @@ def run_optimization(
     is not to be played, 0 for 'play it any week', or the gw in which
     it should be played.
     """
+    if chip_gameweeks is None:
+        chip_gameweeks = {}
     discord_webhook = fetcher.DISCORD_WEBHOOK
     if fpl_team_id is None:
         fpl_team_id = fetcher.FPL_TEAM_ID
+    if fpl_team_id is None:  # still None after trying env vars
+        msg = (
+            "fpl_team_id must be set as argument, environment variables or config file."
+        )
+        raise ValueError(msg)
 
     # see if we are at the start of a season, or
     if gameweeks[0] == 1 or gameweeks[0] == get_entry_start_gameweek(
@@ -433,14 +444,15 @@ def run_optimization(
             "This is the start of the season or a new team - will make a squad "
             "from scratch"
         )
-        fill_initial_squad(
+        squad = fill_initial_squad(
             tag=tag,
             gw_range=gameweeks,
             season=season,
             fpl_team_id=fpl_team_id,
-            num_iterations=num_iterations,
+            num_generations=num_iterations,
+            population_size=num_iterations,
         )
-        return
+        return squad, None
 
     print(f"Running optimization with fpl_team_id {fpl_team_id}")
     use_api = season == CURRENT_SEASON and not is_replay
@@ -456,18 +468,19 @@ def run_optimization(
         # first week for this squad?
         print(f"No existing squad or transfers found for team_id {fpl_team_id}")
         print("Will suggest a new starting squad:")
-        fill_initial_squad(
+        squad = fill_initial_squad(
             tag=tag,
             gw_range=gameweeks,
             season=season,
             fpl_team_id=fpl_team_id,
-            num_iterations=num_iterations,
+            num_generations=num_iterations,
+            population_size=num_iterations,
         )
-        return
+        return squad, None
     # if we got to here, we can assume we are optimizing an existing squad.
 
     # How many free transfers are we starting with?
-    if not num_free_transfers:
+    if num_free_transfers is None:
         num_free_transfers = get_free_transfers(
             fpl_team_id,
             gameweeks[0],
@@ -499,20 +512,21 @@ def run_optimization(
     procs = []
     # create one progress bar for each thread
     progress_bars = []
-    for i in range(num_thread):
+    for _ in range(num_thread):
         progress_bars.append(tqdm(total=100))
 
     # number of nodes in tree will be something like 3^num_weeks unless we allow
     # a "chip" such as wildcard or free hit, in which case it gets complicated
     num_weeks = len(gameweeks)
-    num_expected_outputs = count_expected_outputs(
+    num_expected_outputs, baseline_excluded = count_expected_outputs(
         num_weeks,
         next_gw=gameweeks[0],
         free_transfers=num_free_transfers,
         max_total_hit=max_total_hit,
         allow_unused_transfers=allow_unused_transfers,
-        max_transfers=max_transfers,
+        max_opt_transfers=max_opt_transfers,
         chip_gw_dict=chip_gw_dict,
+        max_free_transfers=max_free_transfers,
     )
     total_progress = tqdm(total=num_expected_outputs, desc="Total progress")
 
@@ -539,9 +553,7 @@ def run_optimization(
             progress_bars[index].update(increment)
             progress_bars[index].refresh()
 
-    if not allow_unused_transfers and (
-        num_weeks > 1 or (num_weeks == 1 and num_free_transfers == 2)
-    ):
+    if baseline_excluded:
         # if we are excluding unused transfers the tree may not include the baseline
         # strategy. In those cases quickly calculate and save it here first.
         save_baseline_score(starting_squad, gameweeks, tag)
@@ -568,7 +580,7 @@ def run_optimization(
                 chip_gw_dict,
                 max_total_hit,
                 allow_unused_transfers,
-                max_transfers,
+                max_opt_transfers,
                 num_iterations,
                 update_progress,
                 reset_progress,
@@ -596,11 +608,15 @@ def run_optimization(
         # the suggestions to the Transaction table
         fill_transaction_table(starting_squad, best_strategy, season, fpl_team_id, tag)
 
-    for i in range(len(procs)):
+    for _ in range(len(procs)):
         print("\n")
     print("\n====================================\n")
     print(f"Strategy for Team ID: {fpl_team_id}")
     print(f"Baseline score: {baseline_score}")
+    if best_strategy is None:
+        msg = "Failed to find a strategy!"
+        raise ValueError(msg)
+
     print(f"Best score: {best_strategy['total_score']}")
     print_strat(best_strategy)
     best_squad = print_team_for_next_gw(
@@ -609,7 +625,7 @@ def run_optimization(
 
     # If a valid discord webhook URL has been stored
     # in env variables, send a webhook message
-    if discord_webhook != "MISSING_ID":
+    if discord_webhook:
         # Use regex to check the discord webhook url is correctly formatted
         if re.match(
             r"^.*(discord|discordapp)\.com\/api\/webhooks\/([\d]+)\/([a-zA-Z0-9_-]+)$",
@@ -650,11 +666,12 @@ def run_optimization(
                 print(f"Not sent with {result.status_code}, response:\n{result.json()}")
         else:
             print("Warning: Discord webhook url is malformed!\n", discord_webhook)
+
     shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
     return best_squad, best_strategy
 
 
-def construct_chip_dict(gameweeks: List[int], chip_gameweeks: dict) -> dict:
+def construct_chip_dict(gameweeks: list[int], chip_gameweeks: dict) -> dict:
     """
     Given a dict of form {<chip_name>: <chip_gw>,...}
     where <chip_name> is e.g. 'wildcard', and <chip_gw> is -1 if chip
@@ -663,25 +680,29 @@ def construct_chip_dict(gameweeks: List[int], chip_gameweeks: dict) -> dict:
     { <gw>: {"chip_to_play": [<chip_name>],
              "chips_allowed": [<chip_name>,...]},...}
     """
-    chip_dict = {}
+    chip_dict: dict[int, dict[str, str | None | list[str]]] = {}
     # first fill in any allowed chips
     for gw in gameweeks:
-        chip_dict[gw] = {"chip_to_play": None, "chips_allowed": []}
+        chip_to_play: str | None = None
+        chips_allowed: list[str] = []
         for k, v in chip_gameweeks.items():
             if int(v) == 0:
-                chip_dict[gw]["chips_allowed"].append(k)
+                chips_allowed.append(k)
+        chip_dict[gw] = {
+            "chip_to_play": chip_to_play,
+            "chips_allowed": chips_allowed,
+        }
     # now go through again, for any definite ones, and remove
     # other allowed chips from those gameweeks
     for k, v in chip_gameweeks.items():
         if v > 0 and v in gameweeks:  # v is the gameweek
             # check we're not trying to play 2 chips
             if chip_dict[v]["chip_to_play"] is not None:
-                raise RuntimeError(
-                    (
-                        f"Cannot play {chip_dict[v]['chip_to_play']} and {k} in the "
-                        "same week"
-                    )
+                msg = (
+                    f"Cannot play {chip_dict[v]['chip_to_play']} and {k} in the "
+                    "same week"
                 )
+                raise RuntimeError(msg)
             chip_dict[v]["chip_to_play"] = k
             chip_dict[v]["chips_allowed"] = []
     return chip_dict
@@ -692,13 +713,16 @@ def sanity_check_args(args: argparse.Namespace) -> bool:
     Check that command-line arguments are self-consistent.
     """
     if args.weeks_ahead and (args.gameweek_start or args.gameweek_end):
-        raise RuntimeError("Please only specify weeks_ahead OR gameweek_start/end")
-    elif (args.gameweek_start and not args.gameweek_end) or (
+        msg = "Please only specify weeks_ahead OR gameweek_start/end"
+        raise RuntimeError(msg)
+    if (args.gameweek_start and not args.gameweek_end) or (
         args.gameweek_end and not args.gameweek_start
     ):
-        raise RuntimeError("Need to specify both gameweek_start and gameweek_end")
-    if args.num_free_transfers and args.num_free_transfers not in range(1, 3):
-        raise RuntimeError("Number of free transfers must be 1 or 2")
+        msg = "Need to specify both gameweek_start and gameweek_end"
+        raise RuntimeError(msg)
+    if args.num_free_transfers and args.num_free_transfers not in range(6):
+        msg = "Number of free transfers must be 0 to 5"
+        raise RuntimeError(msg)
     return True
 
 
@@ -752,6 +776,15 @@ def main():
         action="store_true",
     )
     parser.add_argument(
+        "--max_transfers",
+        help=(
+            "maximum number of transfers to consider each gameweek [EXPERIMENTAL: "
+            "increasing this value above 2 make the optimisation very slow!]"
+        ),
+        type=int,
+        default=2,
+    )
+    parser.add_argument(
         "--num_iterations",
         help="how many iterations to use for Wildcard/Free Hit optimization",
         type=int,
@@ -797,10 +830,7 @@ def main():
 
     num_iterations = args.num_iterations
 
-    if args.num_free_transfers:
-        num_free_transfers = args.num_free_transfers
-    else:
-        num_free_transfers = None  # will work it out in run_optimization
+    num_free_transfers = args.num_free_transfers
     tag = args.tag or get_latest_prediction_tag(season=season)
     max_total_hit = args.max_hit
     allow_unused_transfers = args.allow_unused
@@ -835,7 +865,7 @@ def main():
             num_free_transfers,
             max_total_hit,
             allow_unused_transfers,
-            2,
+            args.max_transfers,
             num_iterations,
             num_thread,
             profile,
