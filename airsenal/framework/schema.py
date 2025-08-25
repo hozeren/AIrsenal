@@ -41,6 +41,7 @@ class Player(Base):
     player_id: Mapped[intpk] = mapped_column(autoincrement=True)
     fpl_api_id: Mapped[int | None]
     name: Mapped[str100]
+    opta_code: Mapped[str | None]
     attributes: Mapped[list["PlayerAttributes"]] = relationship(back_populates="player")
     absences: Mapped[list["Absence"]] = relationship(back_populates="player")
     results: Mapped[list["Result"]] = relationship(back_populates="player")
@@ -315,6 +316,10 @@ class PlayerScore(Base):
     expected_assists: Mapped[float | None]
     expected_goal_involvements: Mapped[float | None]
     expected_goals_conceded: Mapped[float | None]
+    defensive_contribution: Mapped[int | None]
+    clearances_blocks_interceptions: Mapped[int | None]
+    tackles: Mapped[int | None]
+    recoveries: Mapped[int | None]
 
     def __str__(self):
         return f"{self.player} ({self.result}): {self.points} pts, {self.minutes} mins"

@@ -15,6 +15,7 @@ from pandas import Series
 from sqlalchemy.orm.session import Session
 
 from airsenal.framework.bpl_interface import (
+    DEFAULT_TEAM_EPSILON,
     get_fitted_team_model,
     get_goal_probabilities_for_fixtures,
 )
@@ -102,7 +103,7 @@ def calc_all_predicted_points(
     Do the full prediction for players.
     """
     if team_model_args is None:
-        team_model_args = {"epsilon": 0.0}
+        team_model_args = {"epsilon": DEFAULT_TEAM_EPSILON}
     model_team = get_fitted_team_model(
         season=season,
         gameweek=min(gw_range),
@@ -209,7 +210,7 @@ def make_predictedscore_table(
     dbsession: Session = session,
 ) -> str:
     if team_model_args is None:
-        team_model_args = {"epsilon": 0.0}
+        team_model_args = {"epsilon": DEFAULT_TEAM_EPSILON}
     tag = tag_prefix or ""
     tag += str(uuid4())
     if not gw_range:
@@ -279,7 +280,7 @@ def main():
         "--epsilon",
         help="how much to downweight games by in exponential time weighting",
         type=float,
-        default=0.0,
+        default=DEFAULT_TEAM_EPSILON,
     )
 
     args = parser.parse_args()

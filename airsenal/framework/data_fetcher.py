@@ -1,14 +1,24 @@
 """
-Classes to query the FPL API to retrieve current FPL data,
-and to query football-data.org to retrieve match and fixture data.
+Classes to query the FPL API.
+
+Thanks to:
+- @Moose on the FPLDev Discord for the authentication implementation.
+- https://github.com/amosbastian/fpl/blob/master/fpl/utils.py for posting transfers and
+  lineups.
 """
 
+import base64
 import getpass
+import hashlib
 import json
+import re
+import secrets
 import time
+import traceback
+import uuid
 import warnings
 
-import requests
+from curl_cffi import requests
 
 from airsenal.framework.env import (
     DISCORD_WEBHOOK,
@@ -21,6 +31,28 @@ from airsenal.framework.env import (
 
 API_HOME = "https://fantasy.premierleague.com/api"
 
+LOGIN_BASE = "https://account.premierleague.com"
+LOGIN_URLS = {
+    "auth": f"{LOGIN_BASE}/as/authorize",
+    "start": f"{LOGIN_BASE}/davinci/policy/262ce4b01d19dd9d385d26bddb4297b6/start",
+    "login": f"{LOGIN_BASE}/davinci/connections/{{}}/capabilities/customHTMLTemplate",
+    "resume": f"{LOGIN_BASE}/as/resume",
+    "token": f"{LOGIN_BASE}/as/token",
+    "me": f"{API_HOME}/me/",
+}
+
+CLIENT_ID = "bfcbaf69-aade-4c1b-8f00-c1cb8a193030"
+STANDARD_CONNECTION_ID = "0d8c928e4970386733ce110b9dda8412"
+
+
+def generate_code_verifier():
+    return secrets.token_urlsafe(64)[:128]
+
+
+def generate_code_challenge(verifier):
+    digest = hashlib.sha256(verifier.encode()).digest()
+    return base64.urlsafe_b64encode(digest).decode().rstrip("=")
+
 
 class FPLDataFetcher:
     """
@@ -29,10 +61,10 @@ class FPLDataFetcher:
     """
 
     def __init__(self, fpl_team_id: int | None = None, rsession=None):
-        self.rsession = rsession or requests.session()
+        self.rsession = rsession or requests.Session(impersonate="chrome")
+        self.headers: dict[str, str] = {}
         self.logged_in = False
         self.login_failed = False
-        self.continue_without_login = False
         self.current_summary_data: dict = {}
         self.current_event_data: dict = {}
         self.current_player_data: dict = {}
@@ -56,14 +88,13 @@ class FPLDataFetcher:
         self.FPL_DETAIL_URL = API_HOME + "/element-summary/{}/"
         self.FPL_HISTORY_URL = API_HOME + "/entry/{}/history/"
         self.FPL_TEAM_URL = API_HOME + "/entry/{}/event/{}/picks/"
-        self.FPL_TEAM_TRANSFER_URL = API_HOME + "/entry/{}/transfers/"
+        self.FPL_GET_TRANSFERS_URL = API_HOME + "/entry/{}/transfers/"
+        self.FPL_SET_TRANSFERS_URL = API_HOME + "/transfers/"
         self.FPL_LEAGUE_URL = (
             f"{API_HOME}/leagues-classic/{self.FPL_LEAGUE_ID}"
             "/standings/?page_new_entries=1&page_standings=1"
         )
         self.FPL_FIXTURE_URL = f"{API_HOME}/fixtures/"
-        self.FPL_LOGIN_URL = "https://users.premierleague.com/accounts/login/"
-        self.FPL_LOGIN_REDIRECT_URL = "https://fantasy.premierleague.com/a/login"
         self.FPL_MYTEAM_URL = API_HOME + "/my-team/{}/"
 
     def get_fpl_credentials(self):
@@ -91,18 +122,19 @@ class FPLDataFetcher:
             save_env("FPL_LOGIN", self.FPL_LOGIN)
             save_env("FPL_PASSWORD", self.FPL_PASSWORD)
 
-    def login(self, attempts=3):
+    def login(self):
         """
         only needed for accessing mini-league data, or team info for current gw.
         """
-        if self.logged_in or self.continue_without_login:
+        if self.logged_in:
             return
         if self.login_failed:
-            msg = (
+            warnings.warn(
                 "Attempted to use a function requiring login, but login previously "
-                "failed."
+                "failed.",
+                stacklevel=2,
             )
-            raise RuntimeError(msg)
+            return
         if (not self.FPL_LOGIN) or (not self.FPL_PASSWORD):
             do_login = ""
             while do_login.lower() not in ["y", "n"]:
@@ -117,46 +149,204 @@ class FPLDataFetcher:
             if do_login.lower() == "y":
                 self.get_fpl_credentials()
             else:
-                self.login_failed = True
-                self.continue_without_login = True
-                warnings.warn(
-                    "Skipping login which means AIrsenal may have out of date "
-                    "information for your team.",
-                    stacklevel=2,
-                )
+                self._set_login_failed(msg="Credentials not provided.")
                 return
-        headers = {
-            "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 5.1; PRO 5 Build/LMY47D)"
+
+        code_verifier = generate_code_verifier()  # code_verifier for PKCE
+        code_challenge = generate_code_challenge(
+            code_verifier
+        )  # code_challenge from the code_verifier
+        initial_state = uuid.uuid4().hex  # random initial state for the OAuth flow
+
+        # Step 1: Request authorization page
+        params = {
+            "client_id": "bfcbaf69-aade-4c1b-8f00-c1cb8a193030",
+            "redirect_uri": "https://fantasy.premierleague.com/",
+            "response_type": "code",
+            "scope": "openid profile email offline_access",
+            "state": initial_state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
-        data = {
-            "login": self.FPL_LOGIN,
-            "password": self.FPL_PASSWORD,
-            "app": "plfpl-web",
-            "redirect_uri": self.FPL_LOGIN_REDIRECT_URL,
-        }
-        tried = 0
-        response = None
-        while tried < attempts:
-            print(f"Login attempt {tried + 1}/{attempts}...", end=" ")
-            response = self.rsession.post(
-                self.FPL_LOGIN_URL, data=data, headers=headers
-            )
-            if response.status_code == 200:
-                print("Logged in successfully")
-                self.logged_in = True
-                return
-            print("Failed")
-            tried += 1
-            time.sleep(1)
-        if response is None:
-            msg = "Failed to login to FPL API after multiple attempts."
+        auth_response = self.rsession.get(LOGIN_URLS["auth"], params=params)
+        login_html = auth_response.text
+
+        if match := re.search(r'"accessToken":"([^"]+)"', login_html):
+            access_token = match.group(1)
+        else:
+            self._set_login_failed(msg="Failed to extract access token.")
             return
+        # need to read state here for when we resume the OAuth flow later on
+        if match := re.search(
+            r'<input[^>]+name="state"[^>]+value="([^"]+)"', login_html
+        ):
+            new_state = match.group(1)
+        else:
+            self._set_login_failed(msg="Failed to extract state.")
+            return
+
+        # Step 2: Use accessToken to get interaction id and token
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json",
+        }
+        response = self.rsession.post(LOGIN_URLS["start"], headers=headers)
         try:
-            response.raise_for_status()
-        except requests.HTTPError as e:
-            self.login_failed = True
-            msg = f"Error logging in to FPL API: {e}"
-            raise requests.HTTPError(msg) from e
+            r_json = response.json()
+            interaction_id = r_json["interactionId"]
+            interaction_token = r_json["interactionToken"]
+            response_id = r_json["id"]
+        except (json.JSONDecodeError, KeyError) as e:
+            self._set_login_failed(
+                exception=e, msg="Failed to extract interaction token."
+            )
+            return
+
+        # Step 3: log in with interaction tokens (requires 3 post requests)
+        response = self.rsession.post(
+            LOGIN_URLS["login"].format(STANDARD_CONNECTION_ID),
+            headers={
+                "interactionId": interaction_id,
+                "interactionToken": interaction_token,
+            },
+            json={
+                "id": response_id,
+                "eventName": "continue",
+                "parameters": {"eventType": "polling"},
+                "pollProps": {
+                    "status": "continue",
+                    "delayInMs": 10,
+                    "retriesAllowed": 1,
+                    "pollChallengeStatus": False,
+                },
+            },
+        )
+        try:
+            response_id = response.json()["id"]
+        except (json.JSONDecodeError, KeyError) as e:
+            self._set_login_failed(
+                exception=e, msg="Interaction token Post 1 Failed (id generation)"
+            )
+            return
+
+        response = self.rsession.post(
+            LOGIN_URLS["login"].format(STANDARD_CONNECTION_ID),
+            headers={
+                "interactionId": interaction_id,
+                "interactionToken": interaction_token,
+            },
+            json={
+                "id": response_id,
+                "nextEvent": {
+                    "constructType": "skEvent",
+                    "eventName": "continue",
+                    "params": [],
+                    "eventType": "post",
+                    "postProcess": {},
+                },
+                "parameters": {
+                    "buttonType": "form-submit",
+                    "buttonValue": "SIGNON",
+                    "username": self.FPL_LOGIN,
+                    "password": self.FPL_PASSWORD,
+                },
+                "eventName": "continue",
+            },
+        )
+        try:
+            r_json = response.json()
+            response_id = r_json["id"]
+            connection_id = r_json["connectionId"]
+        except (json.JSONDecodeError, KeyError) as e:
+            self._set_login_failed(
+                exception=e,
+                msg="Interaction token Post 2 Failed (connectionID generation)",
+            )
+            return
+
+        response = self.rsession.post(
+            LOGIN_URLS["login"].format(connection_id),
+            headers=headers,
+            json={
+                "id": response_id,
+                "nextEvent": {
+                    "constructType": "skEvent",
+                    "eventName": "continue",
+                    "params": [],
+                    "eventType": "post",
+                    "postProcess": {},
+                },
+                "parameters": {
+                    "buttonType": "form-submit",
+                    "buttonValue": "SIGNON",
+                },
+                "eventName": "continue",
+            },
+        )
+        try:
+            dvResponse = response.json()["dvResponse"]
+        except (json.JSONDecodeError, KeyError) as e:
+            self._set_login_failed(
+                exception=e,
+                msg="Interaction token Post 3 Failed (dvResponse generation)",
+            )
+            return
+
+        # Step 4: Resume the login using the dv_response and handle redirect
+        response = self.rsession.post(
+            LOGIN_URLS["resume"],
+            data={"dvResponse": dvResponse, "state": new_state},
+            allow_redirects=False,
+        )
+        if (location := response.headers.get("Location")) and (
+            match := re.search(r"[?&]code=([^&]+)", location)
+        ):
+            auth_code = match.group(1)
+        else:
+            self._set_login_failed(msg="Failed to extract auth code.")
+            return
+
+        # Step 5: Exchange auth code for access token
+        response = self.rsession.post(
+            LOGIN_URLS["token"],
+            data={
+                "grant_type": "authorization_code",
+                "redirect_uri": "https://fantasy.premierleague.com/",
+                "code": auth_code,  # from the parsed redirect URL
+                "code_verifier": code_verifier,  # code_verifier generated at the start
+                "client_id": "bfcbaf69-aade-4c1b-8f00-c1cb8a193030",
+            },
+        )
+        try:
+            access_token = response.json()["access_token"]
+        except (json.JSONDecodeError, KeyError) as e:
+            self._set_login_failed(exception=e, msg="Failed to retrieve access token.")
+            return
+
+        self.headers = {"X-API-Authorization": f"Bearer {access_token}"}
+        response = self._get_request(LOGIN_URLS["me"])
+        if "player" in response:
+            self.logged_in = True
+        else:
+            self._set_login_failed(
+                msg="All login steps succeeded but team data retrieval failed."
+            )
+            return
+
+    def _set_login_failed(self, exception: Exception | None = None, msg: str = ""):
+        self.login_failed = True
+        exc_str = (
+            "".join(traceback.TracebackException.from_exception(exception).format())
+            if exception
+            else ""
+        )
+        help = (
+            "Login failed due to the error above. Continuing without login but this "
+            "may cause issues later due to not having your latest team details. Login "
+            "failures could be caused by issues with your username and password, "
+            "connection problems, or changes to the API."
+        )
+        warnings.warn(f"{msg}\n{exc_str}\n{help}", stacklevel=3)
 
     def get_current_squad_data(self, fpl_team_id=None):
         """
@@ -270,7 +460,7 @@ class FPLDataFetcher:
         ):
             return self.fpl_transfer_history_data[fpl_team_id]
         # or get it from the API.
-        url = self.FPL_TEAM_TRANSFER_URL.format(fpl_team_id)
+        url = self.FPL_GET_TRANSFERS_URL.format(fpl_team_id)
         # get transfer history from api and reverse order so that
         # oldest transfers at start of list and newest at end.
         self.fpl_transfer_history_data[fpl_team_id] = list(
@@ -293,19 +483,8 @@ class FPLDataFetcher:
         if self.fpl_league_data:
             return self.fpl_league_data
 
-        url = "https://users.premierleague.com/accounts/login/"
-        if (not self.FPL_LOGIN) or (not self.FPL_PASSWORD):
-            # prompt the user for credentials
-            self.get_fpl_credentials()
-        headers = {
-            "login": self.FPL_LOGIN,
-            "password": self.FPL_PASSWORD,
-            "app": "plfpl-web",
-            "redirect_uri": "https://fantasy.premierleague.com/a/login",
-        }
-        self.rsession.post(url, data=headers)
-
-        r = self.rsession.get(self.FPL_LEAGUE_URL, headers=headers)
+        self.login()
+        r = self._get_request(self.FPL_LEAGUE_URL)
         if r.status_code != 200:
             print("Unable to access FPL league API")
             return None
@@ -413,80 +592,48 @@ class FPLDataFetcher:
         return self._get_request(team_url)
 
     def post_lineup(self, payload):
-        """
-        Set the lineup for a specific team
-        """
+        """Set the lineup for a specific team"""
         self.login()
-        payload = json.dumps({"chip": None, "picks": payload})
-        headers = {
-            "Content-Type": "application/json; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://fantasy.premierleague.com/a/team/my",
-        }
+        payload = {"chip": None, "picks": payload}
         team_url = self.FPL_MYTEAM_URL.format(self.FPL_TEAM_ID)
-
-        resp = self.rsession.post(team_url, data=payload, headers=headers)
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as e:
-            msg = (
-                f"{e}\nLineup changes not made due to the error above! Make the "
-                "changes manually on the web-site if needed."
-            )
-            raise requests.HTTPError(msg) from e
-        if resp.status_code == 200:
-            print("SUCCESS....lineup made!")
-            return
-        msg = (
-            f"Unexpected error in post_lineup: "
-            f"code={resp.status_code}, content={resp.content.decode('utf-8')}"
+        self._post_data(
+            team_url,
+            payload,
+            err_msg=(
+                "Failed to set lineup. Make the changes manually on the web-site if "
+                "needed"
+            ),
         )
-        raise Exception(msg)
+        print("Lineup set!")
 
     def post_transfers(self, transfer_payload):
+        """Make transfers via the API.
+
+        WARNING: This can't be undone and may incur points hits. It also doesn't support
+        activating chips currently, so this must be done manually especially if you are
+        using a wildcard or free hit chip (in which case the transfers will be applied
+        as normal transfers with points hits).
+        """
         self.login()
-
-        # adapted from https://github.com/amosbastian/fpl/blob/master/fpl/utils.py
-        headers = {
-            "Content-Type": "application/json; charset=UTF-8",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://fantasy.premierleague.com/a/squad/transfers",
-        }
-
-        transfer_url = "https://fantasy.premierleague.com/api/transfers/"
-
-        resp = self.rsession.post(
-            transfer_url, data=json.dumps(transfer_payload), headers=headers
+        err_msg = (
+            "Failed to set transfers. Make the changes manually on the web-site if "
+            "needed."
         )
-        if "non_form_errors" in resp.json():
-            msg = (
-                f"{resp.json()['non_form_errors']}\nMaking transfers failed due to the "
-                "error above! Make the changes manually on the web-site if needed."
-            )
-            raise requests.RequestException(msg)
-        try:
-            resp.raise_for_status()
-        except requests.HTTPError as e:
-            msg = (
-                f"{e}\nMaking transfers failed due to the error above! Make the "
-                "changes manually on the web-site if needed."
-            )
-            raise requests.HTTPError(msg) from e
-        if resp.status_code == 200:
-            print("SUCCESS....transfers made!")
-            return
-        msg = (
-            f"Unexpected error in post_transfers: "
-            f"code={resp.status_code}, content={resp.content.decode('utf-8')}"
+        self._post_data(
+            self.FPL_SET_TRANSFERS_URL,
+            data=transfer_payload,
+            err_msg=err_msg,
         )
-        raise Exception(msg)
+        print("Transfers made!")
 
-    def _get_request(self, url, err_msg="Unable to access FPL API", attempts=3):
+    def _get_request(
+        self, url, err_msg="Unable to access FPL API", attempts=3, **params
+    ):
         tries = 0
         r = None
         while tries < attempts:
             try:
-                r = self.rsession.get(url)
+                r = self.rsession.get(url, headers=self.headers, params=params)
                 break
             except requests.exceptions.ConnectionError as e:
                 tries += 1
@@ -506,11 +653,27 @@ class FPLDataFetcher:
 
         try:
             r.raise_for_status()
-        except requests.HTTPError as e:
+        except requests.exceptions.HTTPError as e:
             msg = f"{err_msg}: {e}"
-            raise requests.HTTPError(msg) from e
+            raise requests.exceptions.HTTPError(msg) from e
         msg = (
             f"Unexpected error in _get_request to {url}: "
             f"code={r.status_code}, content={r.content.decode('utf-8')}"
         )
         raise RuntimeError(msg)
+
+    def _post_data(self, url, data, err_msg="Failed to post data to FPL API"):
+        headers = {
+            "Content-Type": "application/json; charset=UTF-8",
+            "X-Requested-With": "XMLHttpRequest",
+            **self.headers,
+        }
+        resp = self.rsession.post(url, json=data, headers=headers)
+        if "non_form_errors" in resp.text or "non_field_errors" in resp.text:
+            msg = f"{resp.text}\n{err_msg}"
+            raise requests.exceptions.RequestException(msg)
+        try:
+            resp.raise_for_status()
+        except requests.exceptions.HTTPError as e:
+            msg = f"{err_msg}: {e} {resp.text}"
+            raise requests.exceptions.HTTPError(msg) from e
