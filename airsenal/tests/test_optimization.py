@@ -22,7 +22,7 @@ from airsenal.framework.squad import Squad
 pytestmark = pytest.mark.filterwarnings("ignore:Using purchase price as sale price")
 
 
-class DummyPlayer(object):
+class DummyPlayer:
     """
     fake player that we can add to a squad, giving a specified expected score.
     """
@@ -35,6 +35,7 @@ class DummyPlayer(object):
         self.player_id = player_id
         self.fpl_api_id = player_id
         self.name = f"player_{player_id}"
+        self.display_name = f"Dummy Player_{player_id}"
         self.position = position
         self.team = f"DUMMY_TEAM_{player_id}"
         self.purchase_price = 0
@@ -184,7 +185,7 @@ def test_single_transfer():
         "airsenal.framework.optimization_transfers.get_predicted_points",
         side_effect=mock_pred_points,
     ):
-        new_squad, pid_out, pid_in = make_optimum_single_transfer(t, "DUMMY", [1])
+        new_squad, _pid_out, pid_in = make_optimum_single_transfer(t, "DUMMY", [1])
         # we should expect - player 115 to be transfered in, and to be captain.
     assert pid_in[0] == 115
     for p in new_squad.players:
@@ -207,7 +208,6 @@ def test_double_transfer():
         "DEF": {
             2: 2,
             3: 2,
-            2: 2,
             5: 2,
             6: 2,  # in the orig squad
             103: 0,
@@ -246,7 +246,7 @@ def test_double_transfer():
         "airsenal.framework.optimization_transfers.get_predicted_points",
         side_effect=mock_pred_points,
     ):
-        new_squad, pid_out, pid_in = make_optimum_double_transfer(t, "DUMMY", [1])
+        new_squad, _pid_out, pid_in = make_optimum_double_transfer(t, "DUMMY", [1])
         # we should expect 201 and 115 to be transferred in, and 1,15 to
         # be transferred out.   115 should be captain
         assert 201 in pid_in
@@ -282,10 +282,62 @@ def test_next_week_transfers_no_chips_no_constraints():
         strat,
         max_total_hit=None,
         allow_unused_transfers=True,
-        max_transfers=2,
+        max_opt_transfers=2,
     )
-    # (no. transfers, free transfers following week, points hit)
-    expected = [(0, 2, 0), (1, 1, 0), (2, 1, 4)]
+    # (no. transfers, free transfers next week, total points hit, points hit this gw)
+    expected = [(0, 2, 0, 0), (1, 1, 0, 0), (2, 1, 4, 4)]
+    assert actual == expected
+
+
+def test_next_week_transfers_no_free_transfers_available():
+    # First week (blank starting strat with no free transfer available)
+    strat = (0, 0, {"players_in": {}, "chips_played": {}})
+    # No chips or constraints
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=None,
+        allow_unused_transfers=True,
+        max_opt_transfers=2,
+    )
+    # (no. transfers, free transfers next week, total points hit, points hit this gw)
+    expected = [(0, 1, 0, 0), (1, 1, 4, 4), (2, 1, 8, 8)]
+    assert actual == expected
+
+
+def test_next_week_transfers_with_hits_already_taken():
+    # First week (blank starting strat with 4 points hits already taken)
+    strat = (1, 4, {"players_in": {}, "chips_played": {}})
+    # No chips or constraints
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=None,
+        allow_unused_transfers=True,
+        max_opt_transfers=2,
+    )
+    # (no. transfers, free transfers next week, total points hit, points hit this gw)
+    expected = [(0, 2, 4, 0), (1, 1, 4, 0), (2, 1, 8, 4)]
+    assert actual == expected
+
+
+def test_next_week_transfers_no_chips_no_constraints_max5():
+    # First week (blank starting strat with 1 free transfer available)
+    strat = (1, 0, {"players_in": {}, "chips_played": {}})
+    # No chips or constraints
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=None,
+        allow_unused_transfers=True,
+        max_opt_transfers=5,
+    )
+    # (no. transfers, free transfers next week, total points hit, points hit this gw)
+    expected = [
+        (0, 2, 0, 0),
+        (1, 1, 0, 0),
+        (2, 1, 4, 4),
+        (3, 1, 8, 8),
+        (4, 1, 12, 12),
+        (5, 1, 16, 16),
+    ]
     assert actual == expected
 
 
@@ -295,24 +347,61 @@ def test_next_week_transfers_any_chip_no_constraints():
     actual = next_week_transfers(
         strat,
         max_total_hit=None,
-        max_transfers=2,
+        max_opt_transfers=2,
         chips={
             "chips_allowed": ["wildcard", "free_hit", "bench_boost", "triple_captain"],
             "chip_to_play": None,
         },
     )
     expected = [
-        (0, 2, 0),
-        (1, 1, 0),
-        (2, 1, 4),
-        ("W", 1, 0),
-        ("F", 1, 0),
-        ("B0", 2, 0),
-        ("B1", 1, 0),
-        ("B2", 1, 4),
-        ("T0", 2, 0),
-        ("T1", 1, 0),
-        ("T2", 1, 4),
+        (0, 2, 0, 0),
+        (1, 1, 0, 0),
+        (2, 1, 4, 4),
+        ("W", 1, 0, 0),
+        ("F", 1, 0, 0),
+        ("B0", 2, 0, 0),
+        ("B1", 1, 0, 0),
+        ("B2", 1, 4, 4),
+        ("T0", 2, 0, 0),
+        ("T1", 1, 0, 0),
+        ("T2", 1, 4, 4),
+    ]
+    assert actual == expected
+
+
+def test_next_week_transfers_any_chip_no_constraints_max5():
+    # All chips, no constraints
+    strat = (1, 0, {"players_in": {}, "chips_played": {}})
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=None,
+        max_opt_transfers=5,
+        chips={
+            "chips_allowed": ["wildcard", "free_hit", "bench_boost", "triple_captain"],
+            "chip_to_play": None,
+        },
+    )
+    expected = [
+        (0, 2, 0, 0),
+        (1, 1, 0, 0),
+        (2, 1, 4, 4),
+        (3, 1, 8, 8),
+        (4, 1, 12, 12),
+        (5, 1, 16, 16),
+        ("W", 1, 0, 0),
+        ("F", 1, 0, 0),
+        ("B0", 2, 0, 0),
+        ("B1", 1, 0, 0),
+        ("B2", 1, 4, 4),
+        ("B3", 1, 8, 8),
+        ("B4", 1, 12, 12),
+        ("B5", 1, 16, 16),
+        ("T0", 2, 0, 0),
+        ("T1", 1, 0, 0),
+        ("T2", 1, 4, 4),
+        ("T3", 1, 8, 8),
+        ("T4", 1, 12, 12),
+        ("T5", 1, 16, 16),
     ]
     assert actual == expected
 
@@ -324,9 +413,22 @@ def test_next_week_transfers_no_chips_zero_hit():
         strat,
         max_total_hit=0,
         allow_unused_transfers=True,
-        max_transfers=2,
+        max_opt_transfers=2,
     )
-    expected = [(0, 2, 0), (1, 1, 0)]
+    expected = [(0, 2, 0, 0), (1, 1, 0, 0)]
+    assert actual == expected
+
+
+def test_next_week_transfers_no_chips_zero_hit_max5():
+    # No points hits
+    strat = (1, 0, {"players_in": {}, "chips_played": {}})
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=0,
+        allow_unused_transfers=True,
+        max_opt_transfers=5,
+    )
+    expected = [(0, 2, 0, 0), (1, 1, 0, 0)]
     assert actual == expected
 
 
@@ -337,9 +439,38 @@ def test_next_week_transfers_2ft_no_unused():
         strat,
         max_total_hit=None,
         allow_unused_transfers=False,
-        max_transfers=2,
+        max_opt_transfers=2,
+        max_free_transfers=2,
     )
-    expected = [(1, 2, 0), (2, 1, 0)]
+    expected = [(1, 2, 0, 0), (2, 1, 0, 0)]
+    assert actual == expected
+
+
+def test_next_week_transfers_5ft_no_unused_max5():
+    # 2 free transfers available, no wasted transfers
+    strat = (5, 0, {"players_in": {}, "chips_played": {}})
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=None,
+        allow_unused_transfers=False,
+        max_opt_transfers=5,
+        max_free_transfers=5,
+    )
+    expected = [(1, 5, 0, 0), (2, 4, 0, 0), (3, 3, 0, 0), (4, 2, 0, 0), (5, 1, 0, 0)]
+    assert actual == expected
+
+
+def test_next_week_transfers_3ft_no_hit_max5():
+    # 2 free transfers available, no wasted transfers
+    strat = (3, 0, {"players_in": {}, "chips_played": {}})
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=0,
+        allow_unused_transfers=False,
+        max_opt_transfers=5,
+        max_free_transfers=5,
+    )
+    expected = [(0, 4, 0, 0), (1, 3, 0, 0), (2, 2, 0, 0), (3, 1, 0, 0)]
     assert actual == expected
 
 
@@ -361,9 +492,9 @@ def test_next_week_transfers_chips_already_used():
     actual = next_week_transfers(
         strat,
         max_total_hit=None,
-        max_transfers=2,
+        max_opt_transfers=2,
     )
-    expected = [(0, 2, 0), (1, 1, 0), (2, 1, 4)]
+    expected = [(0, 2, 0, 0), (1, 1, 0, 0), (2, 1, 4, 4)]
     assert actual == expected
 
 
@@ -372,10 +503,10 @@ def test_next_week_transfers_play_wildcard():
     actual = next_week_transfers(
         strat,
         max_total_hit=None,
-        max_transfers=2,
+        max_opt_transfers=2,
         chips={"chips_allowed": [], "chip_to_play": "wildcard"},
     )
-    expected = [("W", 1, 0)]
+    expected = [("W", 1, 0, 0)]
     assert actual == expected
 
 
@@ -384,10 +515,32 @@ def test_next_week_transfers_2ft_allow_wildcard():
     actual = next_week_transfers(
         strat,
         max_total_hit=None,
-        max_transfers=2,
+        max_opt_transfers=2,
         chips={"chips_allowed": ["wildcard"], "chip_to_play": None},
+        max_free_transfers=2,
     )
-    expected = [(0, 2, 0), (1, 2, 0), (2, 1, 0), ("W", 1, 0)]
+    expected = [(0, 2, 0, 0), (1, 2, 0, 0), (2, 1, 0, 0), ("W", 2, 0, 0)]
+    assert actual == expected
+
+
+def test_next_week_transfers_5ft_allow_wildcard():
+    strat = (5, 0, {"players_in": {}, "chips_played": {}})
+    actual = next_week_transfers(
+        strat,
+        max_total_hit=None,
+        max_opt_transfers=5,
+        chips={"chips_allowed": ["wildcard"], "chip_to_play": None},
+        max_free_transfers=5,
+    )
+    expected = [
+        (0, 5, 0, 0),
+        (1, 5, 0, 0),
+        (2, 4, 0, 0),
+        (3, 3, 0, 0),
+        (4, 2, 0, 0),
+        (5, 1, 0, 0),
+        ("W", 5, 0, 0),
+    ]
     assert actual == expected
 
 
@@ -397,10 +550,11 @@ def test_next_week_transfers_2ft_allow_wildcard_no_unused():
         strat,
         max_total_hit=None,
         allow_unused_transfers=False,
-        max_transfers=2,
+        max_opt_transfers=2,
         chips={"chips_allowed": ["wildcard"], "chip_to_play": None},
+        max_free_transfers=2,
     )
-    expected = [(1, 2, 0), (2, 1, 0), ("W", 1, 0)]
+    expected = [(1, 2, 0, 0), (2, 1, 0, 0), ("W", 2, 0, 0)]
     assert actual == expected
 
 
@@ -409,10 +563,10 @@ def test_next_week_transfers_2ft_play_wildcard():
     actual = next_week_transfers(
         strat,
         max_total_hit=None,
-        max_transfers=2,
+        max_opt_transfers=2,
         chips={"chips_allowed": [], "chip_to_play": "wildcard"},
     )
-    expected = [("W", 1, 0)]
+    expected = [("W", 2, 0, 0)]
     assert actual == expected
 
 
@@ -422,10 +576,11 @@ def test_next_week_transfers_2ft_play_bench_boost_no_unused():
         strat,
         max_total_hit=None,
         allow_unused_transfers=False,
-        max_transfers=2,
+        max_opt_transfers=2,
         chips={"chips_allowed": [], "chip_to_play": "bench_boost"},
+        max_free_transfers=2,
     )
-    expected = [("B1", 2, 0), ("B2", 1, 0)]
+    expected = [("B1", 2, 0, 0), ("B2", 1, 0, 0)]
     assert actual == expected
 
 
@@ -435,80 +590,140 @@ def test_next_week_transfers_play_triple_captain_max_transfers_3():
         strat,
         max_total_hit=None,
         allow_unused_transfers=True,
-        max_transfers=3,
+        max_opt_transfers=3,
         chips={"chips_allowed": [], "chip_to_play": "triple_captain"},
     )
-    expected = [("T0", 2, 0), ("T1", 1, 0), ("T2", 1, 4), ("T3", 1, 8)]
+    expected = [("T0", 2, 0, 0), ("T1", 1, 0, 0), ("T2", 1, 4, 4), ("T3", 1, 8, 8)]
     assert actual == expected
 
 
 def test_count_expected_outputs_no_chips_no_constraints():
     # No constraints or chips, expect 3**num_gameweeks strategies
-    count = count_expected_outputs(
+    count, _ = count_expected_outputs(
         3,
         free_transfers=1,
         max_total_hit=None,
         allow_unused_transfers=True,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
         chip_gw_dict={},
     )
     assert count == 3**3
 
-    # Max hit 0
-    # Include:
-    # (0, 0, 0), (0, 0, 1), (0, 0, 2), (0, 1, 0), (0, 1, 1), (0, 1, 2),
-    # (0, 2, 0), (0, 2, 1), (1, 0, 0), (1, 0, 1), (1, 0, 2), (1, 1, 0), (1, 1, 1)
-    # Exclude:
-    # (0, 2, 2), (1, 1, 2), (1, 2, 0), (1, 2, 1), (1, 2, 2), (2, 0, 0), (2, 0, 1),
-    # (2, 0, 2), (2, 1, 0), (2, 1, 1), (2, 1, 2), (2, 2, 0), (2, 2, 1), (2, 2, 2)
+
+def test_count_expected_outputs_no_chips_no_constraints_max5():
+    # No constraints or chips, expect 6**num_gameweeks strategies (0 to 5 transfers
+    # each week)
+    count, _ = count_expected_outputs(
+        3,
+        free_transfers=1,
+        max_total_hit=None,
+        allow_unused_transfers=True,
+        next_gw=1,
+        max_opt_transfers=5,
+        chip_gw_dict={},
+    )
+    assert count == 6**3
 
 
 def test_count_expected_outputs_no_chips_zero_hit():
-    count = count_expected_outputs(
+    """
+    Max hit 0
+    Include:
+    (0, 0, 0), (0, 0, 1), (0, 0, 2), (0, 1, 0), (0, 1, 1), (0, 1, 2),
+    (0, 2, 0), (0, 2, 1), (1, 0, 0), (1, 0, 1), (1, 0, 2), (1, 1, 0), (1, 1, 1)
+    Exclude:
+    (0, 2, 2), (1, 1, 2), (1, 2, 0), (1, 2, 1), (1, 2, 2), (2, 0, 0), (2, 0, 1),
+    (2, 0, 2), (2, 1, 0), (2, 1, 1), (2, 1, 2), (2, 2, 0), (2, 2, 1), (2, 2, 2)
+    """
+    count, _ = count_expected_outputs(
         3,
         free_transfers=1,
         max_total_hit=0,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
         chip_gw_dict={},
     )
     assert count == 13
 
-    # Start with 2 FT and no unused
-    # Include:
-    # (0, 0, 0), (1, 1, 1), (1, 1, 2), (1, 2, 0), (1, 2, 1), (1, 2, 2), (2, 0, 1),
-    # (2, 0, 2), (2, 1, 0), (2, 1, 1), (2, 1, 2), (2, 2, 0), (2, 2, 1), (2, 2, 2)
-    # Exclude:
-    # (0, 0, 1), (0, 0, 2), (0, 1, 0), (0, 1, 1), (0, 1, 2), (0, 2, 0), (0, 2, 1),
-    # (0, 2, 2), (1, 0, 0), (1, 0, 1), (1, 0, 2), (1, 1, 0), (2, 0, 0)
+
+def test_count_expected_outputs_no_chips_zero_hit_max5():
+    """
+    Max hit 0
+    Max 5 transfers
+    Adds (0, 0, 3) to valid strategies compared to
+    test_count_expected_outputs_no_chips_zero_hit above
+    """
+    count, _ = count_expected_outputs(
+        3,
+        free_transfers=1,
+        max_total_hit=0,
+        next_gw=1,
+        max_opt_transfers=5,
+        chip_gw_dict={},
+    )
+    assert count == 14
 
 
 def test_count_expected_outputs_no_chips_2ft_no_unused():
-    count = count_expected_outputs(
+    """
+    Start with 2 FT and no unused
+    Include:
+    (0, 0, 0), (1, 1, 1), (1, 1, 2), (1, 2, 0), (1, 2, 1), (1, 2, 2), (2, 0, 1),
+    (2, 0, 2), (2, 1, 0), (2, 1, 1), (2, 1, 2), (2, 2, 0), (2, 2, 1), (2, 2, 2)
+    Exclude:
+    (0, 0, 1), (0, 0, 2), (0, 1, 0), (0, 1, 1), (0, 1, 2), (0, 2, 0), (0, 2, 1),
+    (0, 2, 2), (1, 0, 0), (1, 0, 1), (1, 0, 2), (1, 1, 0), (2, 0, 0)
+    """
+    count, _ = count_expected_outputs(
         3,
         free_transfers=2,
         max_total_hit=None,
         allow_unused_transfers=False,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
+        max_free_transfers=2,
     )
     assert count == 14
 
-    # Wildcard, 2 weeks, no constraints
-    # Strategies:
-    # (0, 0), (0, 1), (0, 2), (0, 'W'), (1, 0), (1, 1), (1, 2), (1, 'W'), (2, 0),
-    # (2, 1), (2, 2), (2, 'W'), ('W', 0), ('W', 1), ('W', 2)
+
+def test_count_expected_outputs_no_chips_5ft_no_unused_max5():
+    """
+    Start with 5 FT and no unused over 2 weeks
+    Include:
+    (0, 0),
+    (1, 1), (1, 2), (1, 3), (1, 4), (1, 5),
+    (2, 0), (2, 1), (2, 2), (2, 3), (2, 4), (2, 5),
+    (3, 0), (3, 1), (3, 2), (3, 3), (3, 4), (3, 5),
+    (4, 0), (4, 1), (4, 2), (4, 3), (4, 4), (4, 5),
+    (5, 0), (5, 1), (5, 2), (5, 3), (5, 4), (5, 5),
+    """
+    count, _ = count_expected_outputs(
+        2,
+        free_transfers=5,
+        max_total_hit=None,
+        allow_unused_transfers=False,
+        next_gw=1,
+        max_opt_transfers=5,
+        max_free_transfers=5,
+    )
+    assert count == 30
 
 
 def test_count_expected_wildcard_allowed_no_constraints():
-    count = count_expected_outputs(
+    """
+    Wildcard, 2 weeks, no constraints
+    Strategies:
+    (0, 0), (0, 1), (0, 2), (0, 'W'), (1, 0), (1, 1), (1, 2), (1, 'W'), (2, 0),
+    (2, 1), (2, 2), (2, 'W'), ('W', 0), ('W', 1), ('W', 2)
+    """
+    count, _ = count_expected_outputs(
         2,
         free_transfers=1,
         max_total_hit=None,
         allow_unused_transfers=True,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
         chip_gw_dict={
             1: {"chips_allowed": ["wildcard"]},
             2: {"chips_allowed": ["wildcard"]},
@@ -517,22 +732,23 @@ def test_count_expected_wildcard_allowed_no_constraints():
     )
     assert count == 15
 
-    # Bench boost, 2 weeks, no constraints
-    # Strategies:
-    # (0, 0), (0, 1), (0, 2), (0, 'B0'), (0, 'B1'), (0, 'B2'), (1, 0), (1, 1), (1, 2),
-    # (1, 'B0'), (1, 'B1'), (1, 'B2'), (2, 0), (2, 1), (2, 2), (2, 'B0'), (2, 'B1'),
-    # (2, 'B2'), ('B0', 0), ('B0', 1), ('B0', 2), ('B1', 0), ('B1', 1), ('B1', 2),
-    # ('B2', 0), ('B2', 1), ('B2', 2),
-
 
 def count_expected_bench_boost_allowed_no_constraints():
-    count = count_expected_outputs(
+    """
+    Bench boost, 2 weeks, no constraints
+    Strategies:
+    (0, 0), (0, 1), (0, 2), (0, 'B0'), (0, 'B1'), (0, 'B2'), (1, 0), (1, 1), (1, 2),
+    (1, 'B0'), (1, 'B1'), (1, 'B2'), (2, 0), (2, 1), (2, 2), (2, 'B0'), (2, 'B1'),
+    (2, 'B2'), ('B0', 0), ('B0', 1), ('B0', 2), ('B1', 0), ('B1', 1), ('B1', 2),
+    ('B2', 0), ('B2', 1), ('B2', 2),
+    """
+    count, _ = count_expected_outputs(
         2,
         free_transfers=1,
         max_total_hit=None,
         allow_unused_transfers=True,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
         chip_gw_dict={
             1: {"chips_allowed": ["bench_boost"]},
             2: {"chips_allowed": ["bench_boost"]},
@@ -541,19 +757,20 @@ def count_expected_bench_boost_allowed_no_constraints():
     )
     assert count == 27
 
-    # Force playing wildcard in first week
-    # Strategies:
-    # ("W",0), ("W,1), ("W",2)
-
 
 def count_expected_play_wildcard_no_constraints():
-    count = count_expected_outputs(
+    """
+    Force playing wildcard in first week
+    Strategies:
+    ("W",0), ("W,1), ("W",2)
+    """
+    count, _ = count_expected_outputs(
         2,
         free_transfers=1,
         max_total_hit=None,
         allow_unused_transfers=True,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
         chip_gw_dict={
             1: {"chip_to_play": "wildcard", "chips_allowed": []},
             2: {"chip_to_play": None, "chips_allowed": []},
@@ -561,19 +778,20 @@ def count_expected_play_wildcard_no_constraints():
     )
     assert count == 3
 
-    # Force playing free hit in first week, 2FT, don't allow unused
-    # Strategies:
-    # (0,0), ("F",1), ("F",2)
-
 
 def count_expected_play_free_hit_no_unused():
-    count = count_expected_outputs(
+    """
+    Force playing free hit in first week, 2FT, don't allow unused
+    Strategies:
+    (0,0), ("F",1), ("F",2)
+    """
+    count, _ = count_expected_outputs(
         2,
         free_transfers=2,
         max_total_hit=None,
         allow_unused_transfers=False,
         next_gw=1,
-        max_transfers=2,
+        max_opt_transfers=2,
         chip_gw_dict={
             1: {"chip_to_play": "free_hit", "chips_allowed": []},
             2: {"chip_to_play": None, "chips_allowed": []},

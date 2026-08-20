@@ -1,12 +1,11 @@
-#!/usr/bin/env python
-
 """
 Fill the "Player" table with info from this and past seasonss FPL
 """
+
 import json
 import os
-from typing import List, Optional
 
+from sqlalchemy import select
 from sqlalchemy.orm.session import Session
 
 from airsenal.framework.data_fetcher import FPLDataFetcher
@@ -19,27 +18,46 @@ from airsenal.scripts.fill_player_mappings_table import (
 )
 
 
-def find_player_in_table(name: str, dbsession: Session) -> Optional[Player]:
+def find_player_in_table(
+    name: str, dbsession: Session, opta_code: str | None = None
+) -> Player | None:
     """
     see if we already have the player
     """
-    player = dbsession.query(Player).filter_by(name=name).first()
-    if not player:
-        # see if we have an alternative name for this player
-        mapping = dbsession.query(PlayerMapping).filter_by(alt_name=name).first()
-        if mapping:
-            player = (
-                dbsession.query(Player).filter_by(player_id=mapping.player_id).first()
-            )
+    # look for an opta code match
+    if opta_code and (
+        player := dbsession.scalars(
+            select(Player).where(Player.opta_code == opta_code).limit(1)
+        ).first()
+    ):
+        print(f"Found {player} by opta code")
+        return player
 
-    return player or None
+    # look for an exact name match
+    if player := dbsession.scalars(
+        select(Player).where(Player.name == name).limit(1)
+    ).first():
+        print(f"Found {player} by exact name")
+        return player
+
+    # look for an alternative name
+    mapping = dbsession.scalars(
+        select(PlayerMapping).where(PlayerMapping.alt_name == name).limit(1)
+    ).first()
+    if mapping:
+        print(f"Found {player} by alternative name")
+        return dbsession.scalars(
+            select(Player).where(Player.player_id == mapping.player_id).limit(1)
+        ).first()
+
+    return None
 
 
 def num_players_in_table(dbsession: Session) -> int:
     """
     how many players already in player table
     """
-    players = dbsession.query(Player).all()
+    players = dbsession.scalars(select(Player)).all()
     return len(players)
 
 
@@ -47,16 +65,20 @@ def fill_player_table_from_file(filename: str, season: str, dbsession: Session) 
     """
     use json file
     """
-    jplayers = json.load(open(filename))
+    with open(filename) as f:
+        jplayers = json.load(f)
     for jp in jplayers:
         new_entry = False
         name = jp["name"]
+        opta_code = jp.get("opta_code")
         print(f"PLAYER {season} {name}")
-        p = find_player_in_table(name, dbsession)
+        p = find_player_in_table(name, dbsession, opta_code=opta_code)
         if not p:
+            print(f"Adding new player {name}")
             new_entry = True
             p = Player()
             p.name = name
+            p.opta_code = opta_code
         if new_entry:
             dbsession.add(p)
             dbsession.commit()
@@ -77,9 +99,12 @@ def fill_player_table_from_api(season: str, dbsession: Session) -> None:
         first_name = v["first_name"]  # .encode("utf-8")
         second_name = v["second_name"]  # .encode("utf-8")
         name = f"{first_name} {second_name}"
+        display_name = v.get("web_name")
 
         print(f"PLAYER {season} {name}")
         p.name = name
+        p.display_name = display_name
+        p.opta_code = v["opta_code"]
         dbsession.add(p)
     dbsession.commit()
 
@@ -105,12 +130,14 @@ def make_init_player_table(season: str, dbsession: Session = session) -> None:
 
 
 def make_remaining_player_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: list[str] | None = None, dbsession: Session = session
 ) -> None:
     """
     Fill remaining players for subsequent seasons (AFTER players from the most recent
     season)
     """
+    if seasons is None:
+        seasons = []
     for season in seasons:
         filename = os.path.join(
             os.path.join(
@@ -124,8 +151,10 @@ def make_remaining_player_table(
 
 
 def make_player_table(
-    seasons: Optional[List[str]] = [], dbsession: Session = session
+    seasons: list[str] | None = None, dbsession: Session = session
 ) -> None:
+    if seasons is None:
+        seasons = []
     if not seasons:
         seasons = [CURRENT_SEASON]
         seasons += get_past_seasons(3)

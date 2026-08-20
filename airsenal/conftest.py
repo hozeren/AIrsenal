@@ -5,17 +5,26 @@ from pathlib import Path
 from tempfile import mkdtemp
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from airsenal.framework import env
 
 env.AIRSENAL_HOME = Path(mkdtemp())
+# AIRSENAL_DB_FILE/URI/USER/PASSWORD are resolved once, at env.py import time, from
+# whatever real AIRSENAL_HOME/env vars are set on the machine running the tests -
+# overriding AIRSENAL_HOME above does not change them. Reset them here too, so
+# schema.py (imported below) can never bind its default session to a real,
+# already-persisted database instead of a fresh one under the temp AIRSENAL_HOME.
+env.AIRSENAL_DB_FILE = None
+env.AIRSENAL_DB_URI = None
+env.AIRSENAL_DB_USER = None
+env.AIRSENAL_DB_PASSWORD = None
 
 from airsenal.framework.mappings import alternative_team_names  # noqa: E402
 from airsenal.framework.schema import Base, Player, PlayerAttributes  # noqa: E402
 from airsenal.framework.utils import CURRENT_SEASON  # noqa: E402
-from airsenal.tests.resources import dummy_players  # noqa: E402
+from airsenal.tests.test_resources import dummy_players  # noqa: E402
 
 API_SESSION_ID = "TESTSESSION"
 TEST_PAST_SEASON = "2021"
@@ -86,7 +95,7 @@ def fill_players():
     season = CURRENT_SEASON
     gameweek = 1
     with session_scope() as ts:
-        if len(ts.query(Player).all()) > 0:
+        if len(ts.scalars(select(Player)).all()) > 0:
             return
         for i, n in enumerate(dummy_players):
             p = Player()
@@ -119,7 +128,9 @@ def fill_players():
             pa.gameweek = gameweek
             pa.price = price
             pa.position = pos
-            player = ts.query(Player).filter_by(player_id=i).first()
+            player = ts.scalars(
+                select(Player).where(Player.player_id == i).limit(1)
+            ).first()
             pa.player = player
             ts.add(pa)
         ts.commit()

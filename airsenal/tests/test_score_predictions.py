@@ -6,9 +6,11 @@ import numpy as np
 import pandas as pd
 import pytest
 from bpl import ExtendedDixonColesMatchPredictor, NeutralDixonColesMatchPredictor
+from sqlalchemy import select
 
 from airsenal.conftest import past_data_session_scope
 from airsenal.framework.bpl_interface import (
+    DEFAULT_TEAM_EPSILON,
     fixture_probabilities,
     get_fitted_team_model,
     get_ratings_dict,
@@ -32,7 +34,7 @@ from airsenal.framework.prediction_utils import (
     get_player_history_df,
     get_player_scores,
     get_save_points,
-    mean_group_min_count,
+    mean_group_prior,
 )
 from airsenal.framework.schema import Fixture, Result
 
@@ -114,38 +116,38 @@ def test_attacking_points_0_0():
 def test_attacking_points_1_0_top_scorer():
     """
     If team scores, and pr_score is 1, should get 4 points for FWD,
-    5 for MID, 6 for DEF.  We don't consider possibility of GK scoring.
+    5 for MID, 6 for DEF, 10 for GK.
     """
     team_score_prob = {0: 0.0, 1: 1.0}
     player_probs = {"prob_score": 1.0, "prob_assist": 0.0, "prob_neither": 0.0}
     assert get_attacking_points("FWD", 90, team_score_prob, player_probs) == 4
     assert get_attacking_points("MID", 90, team_score_prob, player_probs) == 5
     assert get_attacking_points("DEF", 90, team_score_prob, player_probs) == 6
-    assert get_attacking_points("GK", 90, team_score_prob, player_probs) == 0
+    assert get_attacking_points("GK", 90, team_score_prob, player_probs) == 10
 
     # play 45 mins - 50% chance that goal was scored while they were playing
     assert get_attacking_points("FWD", 45, team_score_prob, player_probs) == 2
     assert get_attacking_points("MID", 45, team_score_prob, player_probs) == 2.5
     assert get_attacking_points("DEF", 45, team_score_prob, player_probs) == 3
-    assert get_attacking_points("GK", 45, team_score_prob, player_probs) == 0
+    assert get_attacking_points("GK", 45, team_score_prob, player_probs) == 5
 
 
 def test_attacking_points_1_0_top_assister():
     """
-    FWD, MID, DEF all get 3 points for an assist.
+    FWD, MID, DEF, GK all get 3 points for an assist.
     """
     team_score_prob = {0: 0.0, 1: 1.0}
     player_probs = {"prob_score": 0.0, "prob_assist": 1.0, "prob_neither": 0.0}
     assert get_attacking_points("FWD", 90, team_score_prob, player_probs) == 3
     assert get_attacking_points("MID", 90, team_score_prob, player_probs) == 3
     assert get_attacking_points("DEF", 90, team_score_prob, player_probs) == 3
-    assert get_attacking_points("GK", 90, team_score_prob, player_probs) == 0
+    assert get_attacking_points("GK", 90, team_score_prob, player_probs) == 3
 
     # play 45 mins - 50% chance that goal was scored while they were playing
     assert get_attacking_points("FWD", 45, team_score_prob, player_probs) == 1.5
     assert get_attacking_points("MID", 45, team_score_prob, player_probs) == 1.5
     assert get_attacking_points("DEF", 45, team_score_prob, player_probs) == 1.5
-    assert get_attacking_points("GK", 45, team_score_prob, player_probs) == 0
+    assert get_attacking_points("GK", 45, team_score_prob, player_probs) == 1.5
 
 
 def test_get_bonus_points():
@@ -208,12 +210,19 @@ def test_get_player_history_df():
         for result_id in result_ids:
             if result_id == 0:
                 continue
-            fixture_id = (
-                ts.query(Result).filter_by(result_id=int(result_id)).first().fixture_id
+            result = ts.scalars(
+                select(Result).where(Result.result_id == int(result_id)).limit(1)
             )
-            fixture = ts.query(Fixture).filter_by(fixture_id=fixture_id).first()
+            result_row = result.first()
+            assert result_row is not None
+            fixture_id = result_row.fixture_id
+            fixture = ts.scalars(
+                select(Fixture).where(Fixture.fixture_id == fixture_id).limit(1)
+            ).first()
+            assert fixture is not None
             assert fixture.season in ["1718", "1819"]
             if fixture.season == "1819":
+                assert fixture.gameweek is not None
                 assert fixture.gameweek < 12
 
 
@@ -255,10 +264,10 @@ def test_fit_conjugate_player_model():
         "minutes": 90 * np.ones((2, 2)),
     }
 
-    pm = pm.fit(data, n_goals_prior=0)
+    pm = pm.fit(data, n_goals_prior=0, epsilon=None)
     assert (pm.posterior == np.array([[1, 2, 3], [3, 2, 1]])).all()
 
-    pm = pm.fit(data, n_goals_prior=3)
+    pm = pm.fit(data, n_goals_prior=3, epsilon=None)
     assert (pm.posterior == np.array([[2, 3, 4], [4, 3, 2]])).all()
 
 
@@ -308,11 +317,11 @@ def test_get_fitted_team_model():
         extended = ExtendedDixonColesMatchPredictor()
         model_team = get_fitted_team_model("1819", 10, ts, model=extended)
         assert isinstance(model_team, ExtendedDixonColesMatchPredictor)
-    # extended model with epsilon = 0.0 by default
+    # extended model with default epsilon
     with past_data_session_scope() as ts:
         model_team = get_fitted_team_model("1819", 10, ts)
         assert isinstance(model_team, ExtendedDixonColesMatchPredictor)
-        assert model_team.epsilon is None
+        assert model_team.epsilon == DEFAULT_TEAM_EPSILON
     # extended model with epsilon = 0.5
     with past_data_session_scope() as ts:
         extended = ExtendedDixonColesMatchPredictor()
@@ -330,7 +339,7 @@ def test_get_fitted_team_model():
         neutral = NeutralDixonColesMatchPredictor()
         model_team = get_fitted_team_model("1819", 10, ts, model=neutral)
         assert isinstance(model_team, NeutralDixonColesMatchPredictor)
-        assert model_team.epsilon is None
+        assert model_team.epsilon == DEFAULT_TEAM_EPSILON
 
 
 def test_fixture_probabilities():
@@ -373,17 +382,35 @@ def test_get_player_scores():
         assert all(df["minutes"] <= 10)
 
 
-def test_mean_group_min_count():
-    """Test mean for groups in df, normalising by a minimum valuee"""
-    df = pd.DataFrame({"idx": [1, 1, 1, 1, 2, 2], "value": [1, 1, 1, 1, 2, 2]})
+def test_mean_group_prior():
+    """Test mean calculation with prior"""
+    df = pd.DataFrame(
+        {
+            "player_id": [1, 1, 1, 1, 2, 2],
+            "bonus": [1, 1, 1, 1, 2, 2],
+            "season": ["2526"] * 6,
+            "gameweek": [1] * 6,
+            "position": ["MID"] * 4 + ["FWD"] * 2,
+        }
+    )
 
-    mean_1 = mean_group_min_count(df, "idx", "value", min_count=1)
+    mean_1 = mean_group_prior(df, "player_id", "bonus", n_prior=0)
     assert mean_1.loc[1] == 1
     assert mean_1.loc[2] == 2
 
-    mean_4 = mean_group_min_count(df, "idx", "value", min_count=4)
-    assert mean_4.loc[1] == 1
-    assert mean_4.loc[2] == 1
+    n_prior = 6
+    prior = 8 / 6
+    mean_1_exp = (1 * 4 + n_prior * prior) / (4 + n_prior)
+    mean_2_exp = (2 * 2 + n_prior * prior) / (2 + n_prior)
+    mean_actual = mean_group_prior(df, "player_id", "bonus", n_prior=n_prior)
+    assert mean_actual.loc[1] == mean_1_exp
+    assert mean_actual.loc[2] == mean_2_exp
+
+    mean_pos = mean_group_prior(
+        df, "player_id", "bonus", n_prior=n_prior, prior_by_position=True
+    )
+    assert mean_pos.loc[1] == 1
+    assert mean_pos.loc[2] == 2
 
 
 def test_fit_bonus():

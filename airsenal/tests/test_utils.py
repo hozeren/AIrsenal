@@ -5,11 +5,12 @@ test some db access helper functions
 from airsenal.conftest import TEST_PAST_SEASON, past_data_session_scope, session_scope
 from airsenal.framework.schema import Player
 from airsenal.framework.utils import (
-    get_gameweek_by_fixture_date,
-    get_next_gameweek_by_date,
+    get_gameweek_by_date,
+    get_last_complete_gameweek_in_db,
     get_player,
     get_player_id,
     get_player_name,
+    get_return_gameweek_by_date,
 )
 
 
@@ -39,27 +40,28 @@ def test_get_player(fill_players):
         assert p.player_id == 1
 
 
-def test_get_next_gameweek_by_date():
+def test_get_return_gameweek_by_date():
     with past_data_session_scope() as ts:
-        gw = get_next_gameweek_by_date(
-            "2020-09-18", season=TEST_PAST_SEASON, dbsession=ts
+        gw = get_return_gameweek_by_date(
+            "2020-09-18", "ARS", season=TEST_PAST_SEASON, dbsession=ts
         )
         assert gw == 2
 
-        gw = get_next_gameweek_by_date(
-            "2020-09-20T12:34:00Z", season=TEST_PAST_SEASON, dbsession=ts
+        gw = get_return_gameweek_by_date(
+            "2020-09-20T12:34:00Z", "ARS", season=TEST_PAST_SEASON, dbsession=ts
         )
         assert gw == 3
 
 
-def test_get_gameweek_by_fixture_date():
+def test_get_gameweek_by_date():
     with past_data_session_scope() as ts:
-        gw = get_gameweek_by_fixture_date(
-            "2020-09-18", season=TEST_PAST_SEASON, dbsession=ts
-        )
-        assert gw is None
-
-        gw = get_gameweek_by_fixture_date(
+        gw = get_gameweek_by_date(
             "2020-09-20T12:34:00Z", season=TEST_PAST_SEASON, dbsession=ts
         )
         assert gw == 2
+
+
+def test_get_last_complete_gameweek_in_db():
+    with past_data_session_scope() as ts:
+        gw = get_last_complete_gameweek_in_db(season=TEST_PAST_SEASON, dbsession=ts)
+        assert gw == 5
