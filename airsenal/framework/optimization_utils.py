@@ -7,6 +7,7 @@ from copy import deepcopy
 from datetime import datetime
 
 from curl_cffi import requests
+from sqlalchemy import select
 
 from airsenal.framework.schema import (
     Fixture,
@@ -33,15 +34,12 @@ MAX_FREE_TRANSFERS = 5  # changed in 24/25 season (not accounted for in replay s
 def check_tag_valid(pred_tag, gameweek_range, season=CURRENT_SEASON, dbsession=session):
     """Check a prediction tag contains predictions for all the specified gameweeks."""
     # get unique gameweek and season values associated with pred_tag
-    fixtures = (
-        (
-            dbsession.query(Fixture.season, Fixture.gameweek)
-            .filter(PlayerPrediction.tag == pred_tag)
-            .join(PlayerPrediction)
-        )
+    fixtures = dbsession.execute(
+        select(Fixture.season, Fixture.gameweek)
+        .join(PlayerPrediction)
+        .where(PlayerPrediction.tag == pred_tag)
         .distinct()
-        .all()
-    )
+    ).all()
     pred_seasons = [f[0] for f in fixtures]
     pred_gws = [f[1] for f in fixtures]
 
@@ -132,19 +130,18 @@ def get_starting_squad(
             )
 
     # otherwise, we use the Transaction table in the DB
-    return get_squad_from_transactions(next_gw - 1, season, fpl_team_id)
+    return get_squad_from_transactions(next_gw, season, fpl_team_id)
 
 
 def get_squad_from_transactions(gameweek, season=CURRENT_SEASON, fpl_team_id=None):
     if not fpl_team_id:
         # use the most recent transaction in the table
-        most_recent = (
-            session.query(Transaction)
+        most_recent = session.scalars(
+            select(Transaction)
+            .where(Transaction.free_hit == 0, Transaction.season == season)
             .order_by(Transaction.id.desc())
-            .filter_by(free_hit=0)
-            .filter_by(season=season)
-            .first()
-        )
+            .limit(1)
+        ).first()
         if most_recent is None:
             msg = "No transactions in database."
             raise ValueError(msg)
@@ -153,15 +150,16 @@ def get_squad_from_transactions(gameweek, season=CURRENT_SEASON, fpl_team_id=Non
 
     # Don't include free hit transfers as they only apply for the week the
     # chip is activated
-    transactions = (
-        session.query(Transaction)
+    transactions = session.scalars(
+        select(Transaction)
+        .where(
+            Transaction.fpl_team_id == fpl_team_id,
+            Transaction.free_hit == 0,
+            Transaction.season == season,
+            Transaction.gameweek < gameweek,
+        )
         .order_by(Transaction.gameweek, Transaction.id)
-        .filter_by(fpl_team_id=fpl_team_id)
-        .filter_by(free_hit=0)
-        .filter_by(season=season)
-        .filter(Transaction.gameweek <= gameweek)
-        .all()
-    )
+    ).all()
     if len(transactions) == 0:
         msg = f"No transactions in database for team ID {fpl_team_id}"
         raise ValueError(msg)
@@ -176,7 +174,7 @@ def get_squad_from_transactions(gameweek, season=CURRENT_SEASON, fpl_team_id=Non
             s.add_player(
                 trans.player_id,
                 price=trans.price,
-                gameweek=trans.gameweek,
+                gameweek=gameweek,  # not trans.gameweek, to get player's current club
                 check_budget=False,
                 check_team=False,
             )
@@ -436,7 +434,7 @@ def next_week_transfers(
     """Given a previous strategy and some optimisation constraints, determine the valid
     options for the number of transfers (or chip played) in the following gameweek.
 
-    strat is a tuple (free_transfers, hit_so_far, strat_dict)
+    strat is a tuple (free_transfers, total_points_hit, strat_dict)
     strat_dict must have key chips_played, which is a dict indexed by gameweek with
     possible values None, "wildcard", "free_hit", "bench_boost" or triple_captain"
 
@@ -446,7 +444,9 @@ def next_week_transfers(
     max_free_transfers - maximum number of free transfers saved in the game rules
     (2 before 2024/25, 5 from 2024/25 season)
 
-    Returns (new_transfers, new_ft_available, new_points_hits) tuples.
+    Returns (new_transfers, new_ft_available, total_points_hit, hit_this_gw) tuples.
+        - total_points_hit is the total points hit so far including this gw
+        - hit_this_gw is the points hit incurred this gameweek
     """
     # check that the 'chips' dict we are given makes sense:
     if chips is None:
@@ -524,17 +524,18 @@ def next_week_transfers(
         if allow_triple_captain:
             new_transfers += [f"T{nt}" for nt in ft_choices]
 
-    new_points_hits = [
-        hit_so_far + calc_points_hit(nt, ft_available) for nt in new_transfers
-    ]
+    hit_this_gw = [calc_points_hit(nt, ft_available) for nt in new_transfers]
+    total_points_hit = [hit_so_far + hit for hit in hit_this_gw]
     new_ft_available = [
         calc_free_transfers(nt, ft_available, max_free_transfers)
         for nt in new_transfers
     ]
 
-    # return list of (num_transfers, free_transfers, hit_so_far) tuples for each new
-    # strategy
-    return list(zip(new_transfers, new_ft_available, new_points_hits, strict=False))
+    # return list of (num_transfers, free_transfers, total_points_hit, hit_this_gw)
+    #  tuples for each new strategy
+    return list(
+        zip(new_transfers, new_ft_available, total_points_hit, hit_this_gw, strict=True)
+    )
 
 
 def count_expected_outputs(
@@ -590,7 +591,7 @@ def count_expected_outputs(
                 max_free_transfers=max_free_transfers,
             )
 
-            for n_transfers, new_free_transfers, new_hit in possibilities:
+            for n_transfers, new_free_transfers, new_hit, _ in possibilities:
                 # make a copy of the strategy up to this point, then add on this gw
                 new_dict = deepcopy(s[2])
 

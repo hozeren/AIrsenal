@@ -165,7 +165,7 @@ class SquadOpt:
             if self.dummy_per_position[pos] > 0:
                 for _ in range(self.dummy_per_position[pos]):
                     dp = DummyPlayer(
-                        self.gw_range, self.tag, pos, price=self.dummy_sub_cost
+                        self.gw_range, self.tag, pos, purchase_price=self.dummy_sub_cost
                     )
                     add_ok = squad.add_player(dp)
                     if not add_ok:
@@ -311,7 +311,7 @@ class SquadOpt:
         hall_of_fame = tools.HallOfFame(1)
 
         # Run the genetic algorithm
-        population, logbook = algorithms.eaSimple(
+        population, _logbook = algorithms.eaSimple(
             population,
             self.toolbox,
             cxpb=crossover_prob,
@@ -442,7 +442,7 @@ def make_new_squad(
             player = opt_squad.players[int(idx)]
             print(
                 player.position(season),
-                player.name,
+                player,
                 player.team(season, 1),
                 player.price(season, 1) / 10,
             )
@@ -459,7 +459,7 @@ def make_new_squad(
                     opt_squad.gw_range,
                     opt_squad.tag,
                     pos,
-                    price=opt_squad.dummy_sub_cost,
+                    purchase_price=opt_squad.dummy_sub_cost,
                 )
                 squad.add_player(dp)
                 if verbose:

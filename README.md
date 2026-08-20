@@ -8,32 +8,19 @@
 
 For some background information and details see https://www.turing.ac.uk/research/research-programmes/research-engineering/programme-articles/airsenal.
 
-#### AIrsenal Details for 2025/26 season
+### AIrsenal Details for 2026/27 season
 
 We have made a mini-league **"Prem-AI League"** for players using this software.  To join, login to the FPL website, and navigate to the page to join a league: https://fantasy.premierleague.com/leagues then click "Join a League".
-The code to join is: **xoz7vm**.
+The code to join is: **bancts**.
 Hope to see your AI team there!! :)
 
-Our own AIrsenal team's ID for the 2025/26 season is **[742663](https://fantasy.premierleague.com/entry/742663/history)**.
+Our own AIrsenal team's ID for the 2026/27 season is **[1598585](https://fantasy.premierleague.com/entry/1598585/history)**.
 
 ## Installation
 
-### _New!_ AIrsenal on PyPi!
+We recommend using [uv](https://docs.astral.sh/uv/) for managing Python versions and dependencies. For instructions on how to install uv, go to: https://docs.astral.sh/uv/getting-started/installation/.
 
-<details>
-
-You can now do `pip install airsenal` in your Python virtual environment of choice, and it should work out-of-the-box, allowing you to run all the `airsenal_*` commands listed in the [Getting Started section](#getting-started).
-However, a couple of caveats:
- * Due to a dependency using an older version of `jaxlib` this currently doesn't work on Python 3.13 or later.
- * We will aim to keep the version on PyPi relatively up-to-date, but if you want the very latest developments, they will appear first in Github (on the `develop` branch if you're feeling brave, or `main` if you want a more stable version), which would require [building from source](#installation-from-source)
-
-</details>
-
-### Installation from source
-
-We recommend using [uv](https://docs.astral.sh/uv/) for managing Python versions and dependencies. For instructions on how to install uv, go to: https://docs.astral.sh/uv/getting-started/installation/
-
-With uv installed, run these commands in a terminal to download and install AIrsenal:
+### Installation from source [Recommended]
 
 #### Linux and macOS
 
@@ -107,6 +94,18 @@ $ docker run -it --rm -v airsenal_data:/tmp/ -e "FPL_TEAM_ID=<your_id>" -e "AIRS
 
 </details>
 
+### AIrsenal on PyPi [Work in Progress]
+
+<details>
+
+⚠️ There are currently dependency issues with installing AIrsenal from PyPI (see #733), so it's not recommended. We're working on it. ⚠️
+
+You can now do `pip install airsenal` in your Python virtual environment of choice, and it should work out-of-the-box, allowing you to run all the `airsenal_*` commands listed in the [Getting Started section](#getting-started).
+
+We will aim to keep the version on PyPi relatively up-to-date, but if you want the very latest developments, they will appear first in Github (on the `develop` branch if you're feeling brave, or `main` if you want a more stable version), which would require [building from source](#installation-from-source)
+
+</details>
+
 ### Optional dependencies
 
 <details>
@@ -117,7 +116,7 @@ $ docker run -it --rm -v airsenal_data:/tmp/ -e "FPL_TEAM_ID=<your_id>" -e "AIRS
 
 </details>
 
-## Running Python commands with uv
+## Running commands with uv
 
 If using AIrsenal with uv you must either prepend `uv run` to all the AIrsenal commands below (e.g. `uv run airsenal_setup_initial_db`), or activate the virtual environment created by uv and then run them as normal. By default the virtual environment can be activated with `source .venv/bin/activate`.
 
@@ -221,13 +220,12 @@ airsenal_make_squad --num_gameweeks 3
 
 ### 5. Apply Transfers and Lineup
 
-To apply the transfers recommended by AIrsenal to your team on the FPL website run `airsenal_make_transfers`. This can't be undone! You can also use `airsenal_set_lineup` to set your starting lineup, captaincy choices, and substitute order to AIrsenal's recommendation (without making any transfers). Note that you must have created the `FPL_LOGIN` and `FPL_PASSWORD` files for these to work (as described in the "Configuration" section above).
+Note that you must have set `FPL_LOGIN` and `FPL_PASSWORD` for these to work (as described in the "Configuration" section above).
 
-⚠️ Also note that this command can't currently apply chips such as "free hit" or "wildcard", even if those were specified in the `airsenal_run_optimization` step.  If you do want to use this command to apply the transfers anyway, you can play the chip at any time before the gameweek deadline via the FPL website.
+To apply the transfers recommended by AIrsenal to your team on the FPL website run `airsenal_make_transfers`.
+- **🚨 This can't be undone and may incur points hits! 🚨** Also, this command **can't currently apply chips** such as "free hit" or "wildcard", even if those were specified in the `airsenal_run_optimization` step.  If you do want to use this command to apply the transfers anyway, you can play the chip at any time before the gameweek deadline **via the FPL website**.
 
-## Contributing
-
-We welcome all types of contribution to AIrsenal, for example questions, documentation, bug fixes, new features and more. Please see our [contributing guidelines](CONTRIBUTING.md). If you're contributing for the first time but not sure what to do a good place to start may be to look at our [current issues](https://github.com/alan-turing-institute/AIrsenal/issues), particularly any with the ["Good first issue" tag](https://github.com/alan-turing-institute/AIrsenal/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22). Also feel free to just say hello!
+You can also use `airsenal_set_lineup` to set your starting lineup, captaincy choices, and substitute order to AIrsenal's recommendation (without making any transfers).
 
 ## Issues and New Features
 
@@ -242,6 +240,11 @@ uv sync  # or "pip install --force-reinstall ." if not using uv
 ```
 
 If there have been database changes you may also need to run `airsenal_setup_initial_db --clean` after the above.
+
+## Contributing
+
+We welcome all types of contribution to AIrsenal, for example questions, documentation, bug fixes, new features and more. Please see our [contributing guidelines](CONTRIBUTING.md). If you're contributing for the first time but not sure what to do a good place to start may be to look at our [current issues](https://github.com/alan-turing-institute/AIrsenal/issues), particularly any with the ["Good first issue" tag](https://github.com/alan-turing-institute/AIrsenal/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22). Also feel free to just say hello!
+
 
 ## Development
 

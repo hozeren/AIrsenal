@@ -8,17 +8,20 @@ import json
 import warnings
 from datetime import datetime
 
+from sqlalchemy import select
 from sqlalchemy.orm.session import Session
 from tqdm import TqdmWarning, tqdm
 
-from airsenal.framework.bpl_interface import DEFAULT_TEAM_EPSILON
+from airsenal.framework.bpl_interface import (
+    DEFAULT_TEAM_EPSILON,
+    parse_team_model_from_str,
+)
 from airsenal.framework.multiprocessing_utils import set_multiprocessing_start_method
 from airsenal.framework.schema import Transaction, session_scope
 from airsenal.framework.utils import (
     get_gameweeks_array,
     get_max_gameweek,
     get_player_name,
-    parse_team_model_from_str,
 )
 from airsenal.scripts.fill_predictedscore_table import make_predictedscore_table
 from airsenal.scripts.fill_transfersuggestion_table import run_optimization
@@ -26,13 +29,9 @@ from airsenal.scripts.squad_builder import fill_initial_squad
 
 
 def get_dummy_id(season: str, dbsession: Session) -> int:
-    team_ids = [
-        item[0]
-        for item in dbsession.query(Transaction.fpl_team_id)
-        .filter_by(season=season)
-        .distinct()
-        .all()
-    ]
+    team_ids = dbsession.scalars(
+        select(Transaction.fpl_team_id).where(Transaction.season == season).distinct()
+    ).all()
     if not team_ids or min(team_ids) > 0:
         return -1
     return min(team_ids) - 1
@@ -100,7 +99,6 @@ def replay_season(
             tag = make_predictedscore_table(
                 gw_range=gw_range,
                 season=season,
-                num_thread=num_thread,
                 tag_prefix=tag_prefix,
                 team_model=team_model_class,
                 team_model_args=team_model_args,

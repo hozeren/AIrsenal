@@ -91,9 +91,6 @@ target/
 # Jupyter Notebook
 .ipynb_checkpoints
 
-# pyenv
-.python-version
-
 # celery beat schedule file
 celerybeat-schedule
 
@@ -121,8 +118,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
-data.csv
-data.db
-irem_run.sh
-log.txt
-.vscode/settings.json
+
+# editor config
+.vscode

@@ -31,12 +31,12 @@ def fill_attributes_table_from_file(
     player detail JSON files.
     """
 
-    for player_name, player_data in detail_data.items():
+    for player_name_or_id, player_data in detail_data.items():
         # find the player id in the player table.  If they're not
         # there, then we don't care (probably not a current player).
-        player = get_player(player_name, dbsession=dbsession)
+        player = get_player(player_name_or_id, dbsession=dbsession)
         if not player:
-            print(f"Couldn't find player {player_name}")
+            print(f"Couldn't find player {player_name_or_id}")
             continue
 
         print(f"ATTRIBUTES {season} {player}")
@@ -105,10 +105,14 @@ def fill_attributes_table_from_api(
             print(f"ATTRIBUTES {season} No player found with id {player_api_id}")
             continue
 
-        print(f"ATTRIBUTES {season} {player.name}")
+        print(f"ATTRIBUTES {season} {player}")
 
         # First update the current gameweek using the summary data
         p_summary = input_data[player_api_id]
+
+        if player.opta_code is None and "opta_code" in p_summary:
+            player.opta_code = p_summary["opta_code"]
+
         position = positions[p_summary["element_type"]]
 
         pa = get_player_attributes(
@@ -149,6 +153,7 @@ def fill_attributes_table_from_api(
         ):
             pa.return_gameweek = get_return_gameweek_from_news(
                 p_summary["news"],
+                team=team,
                 season=season,
                 dbsession=dbsession,
             )
@@ -162,7 +167,7 @@ def fill_attributes_table_from_api(
         if next_gw > 1:
             player_data = fetcher.get_gameweek_data_for_player(player_api_id)
             if not player_data:
-                print("Failed to get data for", player.name)
+                print(f"Failed to get data for {player}")
                 continue
             for gameweek, data in player_data.items():
                 if gameweek < gw_start:

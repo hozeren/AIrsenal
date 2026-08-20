@@ -42,7 +42,7 @@ LOGIN_URLS = {
 }
 
 CLIENT_ID = "bfcbaf69-aade-4c1b-8f00-c1cb8a193030"
-STANDARD_CONNECTION_ID = "0d8c928e4970386733ce110b9dda8412"
+STANDARD_CONNECTION_ID = "867ed4363b2bc21c860085ad2baa817d"
 
 
 def generate_code_verifier():
@@ -185,7 +185,7 @@ class FPLDataFetcher:
             self._set_login_failed(msg="Failed to extract state.")
             return
 
-        # Step 2: Use accessToken to get interaction id and token
+        # Step 2: Use accessToken to get interaction id
         headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json",
@@ -194,20 +194,16 @@ class FPLDataFetcher:
         try:
             r_json = response.json()
             interaction_id = r_json["interactionId"]
-            interaction_token = r_json["interactionToken"]
             response_id = r_json["id"]
         except (json.JSONDecodeError, KeyError) as e:
-            self._set_login_failed(
-                exception=e, msg="Failed to extract interaction token."
-            )
+            self._set_login_failed(exception=e, msg="Failed to extract interaction ID.")
             return
 
-        # Step 3: log in with interaction tokens (requires 3 post requests)
+        # Step 3: log in with interaction ID (requires 3 post requests)
         response = self.rsession.post(
             LOGIN_URLS["login"].format(STANDARD_CONNECTION_ID),
             headers={
                 "interactionId": interaction_id,
-                "interactionToken": interaction_token,
             },
             json={
                 "id": response_id,
@@ -225,7 +221,7 @@ class FPLDataFetcher:
             response_id = response.json()["id"]
         except (json.JSONDecodeError, KeyError) as e:
             self._set_login_failed(
-                exception=e, msg="Interaction token Post 1 Failed (id generation)"
+                exception=e, msg="Interaction Post 1 Failed (id generation)"
             )
             return
 
@@ -233,7 +229,6 @@ class FPLDataFetcher:
             LOGIN_URLS["login"].format(STANDARD_CONNECTION_ID),
             headers={
                 "interactionId": interaction_id,
-                "interactionToken": interaction_token,
             },
             json={
                 "id": response_id,
@@ -260,7 +255,7 @@ class FPLDataFetcher:
         except (json.JSONDecodeError, KeyError) as e:
             self._set_login_failed(
                 exception=e,
-                msg="Interaction token Post 2 Failed (connectionID generation)",
+                msg="Interaction Post 2 Failed (connectionID generation)",
             )
             return
 
@@ -288,7 +283,7 @@ class FPLDataFetcher:
         except (json.JSONDecodeError, KeyError) as e:
             self._set_login_failed(
                 exception=e,
-                msg="Interaction token Post 3 Failed (dvResponse generation)",
+                msg="Interaction Post 3 Failed (dvResponse generation)",
             )
             return
 
@@ -382,7 +377,9 @@ class FPLDataFetcher:
         Requires login
         """
         squad_data = self.get_current_squad_data(fpl_team_id)
-        return squad_data["transfers"]["limit"]
+        return max(
+            0, squad_data["transfers"]["limit"] - squad_data["transfers"]["made"]
+        )
 
     def get_current_bank(self, fpl_team_id=None):
         """

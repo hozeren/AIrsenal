@@ -5,6 +5,8 @@ Script to dump the database contents.
 import csv
 import os
 
+from sqlalchemy import select
+
 from airsenal.framework.schema import (
     FifaTeamRating,
     Fixture,
@@ -20,7 +22,7 @@ from airsenal.framework.utils import session
 
 def main():
     # Dump Player database
-    player_fieldnames = ["player_id", "fpl_api_id", "name"]
+    player_fieldnames = ["player_id", "fpl_api_id", "name", "opta_code"]
     save_table_fields(
         "../data/players.csv",
         player_fieldnames,
@@ -159,6 +161,10 @@ def main():
         "expected_goals",
         "expected_goal_involvements",
         "expected_goals_conceded",
+        "clearances_blocks_interceptions",
+        "defensive_contribution",
+        "recoveries",
+        "tackles",
     ]
     save_table_fields(
         "../data/player_scores.csv",
@@ -181,7 +187,7 @@ def write_rows_to_csv(csvfile, fieldnames, dbclass):
     writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
     writer.writeheader()
     print(f"Writing table {dbclass}")
-    for player in session.query(dbclass).all():
+    for player in session.scalars(select(dbclass)).all():
         player_dict = vars(player)
         row = {
             field: player_dict[field]

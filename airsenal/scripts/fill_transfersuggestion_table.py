@@ -20,13 +20,13 @@ import json
 import os
 import shutil
 import sys
-import time
 import warnings
 from collections.abc import Callable
-from multiprocessing import Process, Queue
+from multiprocessing import Process
 
 import regex as re
 import requests
+from prettytable import PrettyTable
 from tqdm import TqdmWarning, tqdm
 
 from airsenal.framework.env import AIRSENAL_HOME
@@ -37,7 +37,6 @@ from airsenal.framework.multiprocessing_utils import (
 from airsenal.framework.optimization_transfers import make_best_transfers
 from airsenal.framework.optimization_utils import (
     MAX_FREE_TRANSFERS,
-    calc_points_hit,
     check_tag_valid,
     count_expected_outputs,
     fill_suggestion_table,
@@ -63,24 +62,9 @@ from airsenal.scripts.squad_builder import fill_initial_squad
 OUTPUT_DIR = os.path.join(AIRSENAL_HOME, "airsopt")
 
 
-def is_finished(final_expected_num: int) -> bool:
-    """
-    Count the number of json files in the output directory, and see if the number
-    matches the final expected number, which should be pre-calculated by the
-    count_expected_points function based on the number of weeks optimising for, chips
-    available and other constraints.
-    Return True if output files are all there, False otherwise.
-    """
-
-    # count the json files in the output dir
-    json_count = len(os.listdir(OUTPUT_DIR))
-    return json_count == final_expected_num
-
-
 def optimize(
-    queue: Queue,
+    queue: CustomQueue,
     pid: Process,
-    num_expected_outputs: int,
     gameweek_range: list[int],
     season: str,
     pred_tag: str,
@@ -102,7 +86,8 @@ def optimize(
 
     The rest of the parameters needed for prediction are from the queue.
 
-    Things on the queue will either be "FINISHED", or a tuple:
+    Things on the queue will either be None (shutdown sentinel, sent once all
+    strategies have been processed), or a tuple:
     (
      num_transfers,
      free_transfers,
@@ -113,13 +98,9 @@ def optimize(
     )
     """
     while True:
-        if queue.qsize() > 0:
-            status = queue.get()
-        else:
-            if is_finished(num_expected_outputs):
-                break
-            time.sleep(5)
-            continue
+        status = queue.get()
+        if status is None:
+            break
 
         # now assume we have set of parameters to do an optimization
         # from the queue.
@@ -131,7 +112,15 @@ def optimize(
         else:
             profiler = None
 
-        num_transfers, free_transfers, hit_so_far, squad, strat_dict, sid = status
+        (
+            num_transfers,
+            free_transfers,
+            hit_so_far,
+            hit_this_gw,
+            squad,
+            strat_dict,
+            sid,
+        ) = status
         # num_transfers will be 0, 1, 2, OR 'W' or 'F', OR 'T0', T1', 'T2',
         # OR 'B0', 'B1', or 'B2' (the latter six represent triple captain or
         # bench boost along with 0, 1, or 2 transfers).
@@ -153,6 +142,7 @@ def optimize(
             strat_dict["players_in"] = {}
             strat_dict["players_out"] = {}
             strat_dict["chips_played"] = {}
+            strat_dict["bank"] = {}
             new_squad = squad
             gw = gameweek_range[0] - 1
             strat_dict["root_gw"] = gameweek_range[0]
@@ -203,18 +193,17 @@ def optimize(
                 (updater, increment, pid) if updater is not None else None,
             )
 
-            points_hit = calc_points_hit(num_transfers, free_transfers)
             discount_factor = get_discount_factor(root_gw, gw)
-            points -= points_hit * discount_factor
+            points -= hit_this_gw * discount_factor
             strat_dict["total_score"] += points
             strat_dict["points_per_gw"][gw] = points
             strat_dict["free_transfers"][gw] = free_transfers
             strat_dict["num_transfers"][gw] = num_transfers
-            strat_dict["points_hit"][gw] = points_hit
+            strat_dict["points_hit"][gw] = hit_this_gw
             strat_dict["discount_factor"][gw] = discount_factor
             strat_dict["players_in"][gw] = transfers["in"]
             strat_dict["players_out"][gw] = transfers["out"]
-
+            strat_dict["bank"][gw] = new_squad.budget
             depth += 1
 
         if depth >= len(gameweek_range):
@@ -240,21 +229,24 @@ def optimize(
                 chips=chips_gw_dict[gw + 1],
                 max_free_transfers=max_free_transfers,
             )
-
             for strat in strategies:
-                # strat: (num_transfers, free_transfers, hit_so_far)
-                num_transfers, free_transfers, hit_so_far = strat
+                num_transfers, free_transfers, hit_so_far, hit_this_gw = strat
 
                 queue.put(
                     (
                         num_transfers,
                         free_transfers,
                         hit_so_far,
+                        hit_this_gw,
                         new_squad,
                         strat_dict,
                         sid,
                     )
                 )
+
+        # mark this task as done only now that any children have been queued,
+        # so queue.join() can't return before the whole tree is processed.
+        queue.task_done()
 
 
 def find_best_strat_from_json(tag: str) -> dict | None:
@@ -314,25 +306,23 @@ def print_strat(strat: dict) -> None:
     """
     gameweeks_as_str = strat["points_per_gw"].keys()
     gameweeks_as_int = sorted([int(gw) for gw in gameweeks_as_str])
-    print(" ===============================================")
-    print(" ========= Optimum strategy ====================")
-    print(" ===============================================")
+
     for gw in gameweeks_as_int:
-        print(f"\n =========== Gameweek {gw} ================\n")
-        print(f"Chips played:  {strat['chips_played'][str(gw)]}\n")
-        print("Players in:\t\t\tPlayers out:")
-        print("-----------\t\t\t------------")
-        for i in range(len(strat["players_in"][str(gw)])):
-            pin = get_player_name(strat["players_in"][str(gw)][i])
-            pout = get_player_name(strat["players_out"][str(gw)][i])
-            subs = (
-                f"{pin}\t\t\t{pout}"
-                if pin is not None and len(pin) < 20
-                else f"{pin}\t\t{pout}"
-            )
-            print(subs)
-    print("\n==========================")
-    print(f" Total score: {int(strat['total_score'])} \n")
+        print(f"\nGAMEWEEK {gw}:\n")
+        table = PrettyTable(["Players Out", "Players In"])
+        table.align = "l"
+        for pin, pout in zip(
+            strat["players_in"][str(gw)], strat["players_out"][str(gw)], strict=True
+        ):
+            table.add_row([get_player_name(pout), get_player_name(pin)])
+        if len(table.rows) == 0:
+            table.add_row(["None", "None"])
+        print(table)
+        print(f"Chip Played: {strat['chips_played'][str(gw)]}")
+        print(f"Points Hit: {strat['points_hit'][str(gw)]}pts")
+        print(f"Bank: £{float(strat['bank'][str(gw)]) / 10}m")
+        pred_pts = strat["points_per_gw"][str(gw)] / strat["discount_factor"][str(gw)]
+        print(f"Predicted Score: {pred_pts:.1f}pts")
 
 
 def discord_payload(strat: dict, lineup: list[str]) -> dict:
@@ -382,7 +372,10 @@ def discord_payload(strat: dict, lineup: list[str]) -> dict:
 
 
 def print_team_for_next_gw(
-    strat: dict, season: str = CURRENT_SEASON, fpl_team_id: int | None = None
+    strat: dict,
+    season: str = CURRENT_SEASON,
+    fpl_team_id: int | None = None,
+    use_api: bool = False,
 ) -> Squad:
     """
     Display the team (inc. subs and captain) for the next gameweek
@@ -390,13 +383,18 @@ def print_team_for_next_gw(
     gameweeks_as_str = strat["points_per_gw"].keys()
     gameweeks_as_int = sorted([int(gw) for gw in gameweeks_as_str])
     next_gw = gameweeks_as_int[0]
-    t = get_starting_squad(next_gw=next_gw, season=season, fpl_team_id=fpl_team_id)
+    t = get_starting_squad(
+        next_gw=next_gw, season=season, fpl_team_id=fpl_team_id, use_api=use_api
+    )
     for pidout in strat["players_out"][str(next_gw)]:
         t.remove_player(pidout)
     for pidin in strat["players_in"][str(next_gw)]:
         t.add_player(pidin)
     tag = get_latest_prediction_tag(season=season)
     t.get_expected_points(next_gw, tag)
+    print("\n--------------------------------")
+    print(f"Starting Lineup for Gameweek {next_gw}:")
+    print("--------------------------------")
     print(t)
     return t
 
@@ -488,6 +486,7 @@ def run_optimization(
             apifetcher=fetcher,
             is_replay=is_replay,
         )
+    print(f"Starting with {num_free_transfers} free transfers")
 
     # create the output directory for temporary json files
     # giving the points prediction for each strategy
@@ -542,13 +541,8 @@ def run_optimization(
     def update_progress(increment=1, index=None):
         if index is None:
             # outer progress bar
-            nfiles = len(os.listdir(OUTPUT_DIR))
-            total_progress.n = nfiles
+            total_progress.n = len(os.listdir(OUTPUT_DIR))
             total_progress.refresh()
-            if nfiles == num_expected_outputs:
-                total_progress.close()
-                for pb in progress_bars:
-                    pb.close()
         else:
             progress_bars[index].update(increment)
             progress_bars[index].refresh()
@@ -573,7 +567,6 @@ def run_optimization(
             args=(
                 squeue,
                 i,
-                num_expected_outputs,
                 gameweeks,
                 season,
                 tag,
@@ -591,11 +584,22 @@ def run_optimization(
         processor.start()
         procs.append(processor)
     # add starting node to the queue
-    squeue.put((0, num_free_transfers, 0, starting_squad, {}, "starting"))
+    squeue.put((0, num_free_transfers, 0, 0, starting_squad, {}, "starting"))
 
-    for i, p in enumerate(procs):
-        progress_bars[i].close()
-        progress_bars[i] = None
+    # block until every node in the (dynamically-grown) strategy tree has been
+    # processed - i.e. the queue is empty and no worker is still processing an
+    # item that could enqueue further children.
+    squeue.join()
+
+    update_progress()
+    total_progress.close()
+    for pb in progress_bars:
+        pb.close()
+
+    # tell each worker to shut down, then wait for them to exit
+    for _ in procs:
+        squeue.put(None)
+    for p in procs:
         p.join()
 
     # find the best from all the strategies tried
@@ -610,17 +614,20 @@ def run_optimization(
 
     for _ in range(len(procs)):
         print("\n")
-    print("\n====================================\n")
-    print(f"Strategy for Team ID: {fpl_team_id}")
-    print(f"Baseline score: {baseline_score}")
+
     if best_strategy is None:
         msg = "Failed to find a strategy!"
         raise ValueError(msg)
 
-    print(f"Best score: {best_strategy['total_score']}")
+    print("================")
+    print("OPTIMUM STRATEGY")
+    print("================\n")
+    print(f"Team ID: {fpl_team_id}")
+    print(f"Baseline Score: {baseline_score:.1f}pts")
+    print(f"Score with Strategy: {best_strategy['total_score']:.1f}pts")
     print_strat(best_strategy)
     best_squad = print_team_for_next_gw(
-        best_strategy, season=season, fpl_team_id=fpl_team_id
+        best_strategy, season=season, fpl_team_id=fpl_team_id, use_api=use_api
     )
 
     # If a valid discord webhook URL has been stored
@@ -642,7 +649,7 @@ def run_optimization(
                 lineup_strings.append(f"== **{position}** ==\n```")
                 for p in best_squad.players:
                     if p.position == position and p.is_starting:
-                        player_line = f"{p.name} ({p.team})"
+                        player_line = f"{p} ({p.team})"
                         if p.is_captain:
                             player_line += "(C)"
                         elif p.is_vice_captain:
@@ -654,7 +661,7 @@ def run_optimization(
             subs = [p for p in best_squad.players if not p.is_starting]
             subs.sort(key=lambda p: p.sub_position)
             for p in subs:
-                lineup_strings.append(f"{p.name} ({p.team})")
+                lineup_strings.append(f"{p} ({p.team})")
             lineup_strings.append("```\n")
 
             # generate a discord embed json and send to webhook
@@ -680,7 +687,7 @@ def construct_chip_dict(gameweeks: list[int], chip_gameweeks: dict) -> dict:
     { <gw>: {"chip_to_play": [<chip_name>],
              "chips_allowed": [<chip_name>,...]},...}
     """
-    chip_dict: dict[int, dict[str, str | None | list[str]]] = {}
+    chip_dict: dict[int, dict[str, str | list[str] | None]] = {}
     # first fill in any allowed chips
     for gw in gameweeks:
         chip_to_play: str | None = None
