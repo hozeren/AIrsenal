@@ -22,7 +22,7 @@ def set_multiprocessing_start_method():
     if __name__  == "__main__"
     """
     if os.name == "posix":
-        multiprocessing.set_start_method("fork")
+        multiprocessing.set_start_method("fork", force=True)
 
 
 # The following implementation of custom MyQueue to avoid NotImplementedError

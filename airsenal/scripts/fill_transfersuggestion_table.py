@@ -47,6 +47,7 @@ from airsenal.framework.optimization_utils import (
     get_starting_squad,
     next_week_transfers,
 )
+from airsenal.framework.schema import session
 from airsenal.framework.squad import Squad
 from airsenal.framework.utils import (
     CURRENT_SEASON,
@@ -552,6 +553,10 @@ def run_optimization(
         # strategy. In those cases quickly calculate and save it here first.
         save_baseline_score(starting_squad, gameweeks, tag)
         update_progress()
+
+    # Close the parent pool before forked workers establish their own connections.
+    session.close()
+    session.bind.dispose()
 
     # Add Processes to run the target 'optimize' function.
     # This target function needs to know:
