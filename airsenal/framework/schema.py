@@ -488,7 +488,7 @@ def get_connection_string() -> str:
 
         return (
             f"postgresql://{AIRSENAL_DB_USER}:"
-            f"{AIRSENAL_DB_PASSWORD}@{AIRSENAL_DB_URI}/airsenal2526"
+            f"{AIRSENAL_DB_PASSWORD}@{AIRSENAL_DB_URI}/airsenal2627"
         )
 
     # sqlite database in a local file with path specified by AIRSENAL_DB_FILE,
